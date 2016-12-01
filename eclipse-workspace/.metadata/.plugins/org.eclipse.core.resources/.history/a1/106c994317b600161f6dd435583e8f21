@@ -1,0 +1,373 @@
+
+package com.rocedar.device.util;
+
+import java.io.IOException;
+import java.text.DecimalFormat;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
+
+import org.apache.commons.lang.time.DateFormatUtils;
+import org.apache.http.HttpEntity;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.utils.URIBuilder;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import com.rocedar.common.exception.FileException;
+import com.rocedar.common.utils.ConfigUtils;
+import com.rocedar.device.exception.DeviceException;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+/**
+ * @author Administrator
+ * @version 1.0.0.2016年4月15日
+ */
+public class DeviceUtil {
+
+    private static Logger logger = LogManager.getLogger(DeviceUtil.class);
+
+    /**
+     * 公用httpGet方法
+     * 
+     * @param url
+     * @param params
+     * @return
+     * @throws Exception
+     */
+    public static String httpGet(String url, List<NameValuePair> params, Map<String, String> headers)
+            throws DeviceException {
+        CloseableHttpResponse response = null;
+        try {
+            URIBuilder uri = new URIBuilder(url);
+            if (params != null) {
+                uri.setParameters(params);
+            }
+            HttpGet hg = new HttpGet(uri.build().toString());
+            if (headers != null) {
+                Set<String> keys = headers.keySet();
+                for (Iterator<String> i = keys.iterator(); i.hasNext();) {
+                    String key = (String) i.next();
+                    hg.addHeader(key, headers.get(key));
+                }
+            }
+            CloseableHttpClient httpClient = HttpClients.createDefault();
+            response = httpClient.execute(hg);
+            HttpEntity responseEntity = response.getEntity();
+            String reponseString = EntityUtils.toString(responseEntity, "utf-8");
+            return reponseString;
+        } catch (Exception e) {
+            logger.error("httpGet请求异常,接口地址=" + url, e);
+            throw new DeviceException(700000);
+        } finally {
+            try {
+                if (response != null) {
+                    response.close();
+                }
+            } catch (IOException e) {
+                logger.error("httpGet请求关闭响应流失败,接口地址=" + url, e);
+            }
+        }
+    }
+
+    /**
+     * 公用httpPost方法
+     * 
+     * @param url
+     * @param params
+     * @param headers
+     * @param entity
+     * @return
+     * @throws Exception
+     */
+    public static String httpPost(String url, List<NameValuePair> params, Map<String, String> headers, String entityString)
+            throws DeviceException {
+        HttpPost hp = new HttpPost(url);
+        CloseableHttpResponse response = null;
+        try {
+            if (params != null) {
+                hp.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
+            }
+            if (headers != null) {
+                Set<String> keys = headers.keySet();
+                for (Iterator<String> i = keys.iterator(); i.hasNext();) {
+                    String key = (String) i.next();
+                    hp.addHeader(key, headers.get(key));
+                }
+            }
+            if (entityString != null) {
+                StringEntity entity = new StringEntity(entityString, "utf-8");// 解决中文乱码问题
+                entity.setContentType("application/json");
+                hp.setEntity(entity);
+            }
+            CloseableHttpClient httpClient = HttpClients.createDefault();
+            response = httpClient.execute(hp);
+            HttpEntity responseEntity = response.getEntity();
+            String reponseString = EntityUtils.toString(responseEntity, "utf-8");
+            return reponseString;
+        } catch (Exception e) {
+            System.out.println(
+                "httpPost请求异常,接口地址:" + url + "参数:" + params + "headers:" + headers.toString() + "entity:" + entityString);
+            logger.error("httpPost请求异常,接口地址=" + url+ "参数:" + params + "headers:" + headers.toString() + "entity:" + entityString, e);
+            throw new DeviceException(700000,
+                "httpPost请求异常,接口地址:" + url + "参数:" + params + "headers:" + headers.toString() + "entity:" + entityString);
+        } finally {
+            try {
+                if (response != null) {
+                    response.close();
+                }
+            } catch (IOException e) {
+                logger.error("httpPost请求关闭响应流失败,接口地址=" + url, e);
+            }
+        }
+    }
+
+    /**
+     * 计算token具体到期时间
+     * 
+     * @param expiresIn
+     * @return
+     */
+    public static Long getExpireTime(int expiresIn) {
+        Calendar now = Calendar.getInstance();
+        now.add(Calendar.SECOND, expiresIn);
+        Long expireTime = Long.parseLong(DateFormatUtils.format(now, "yyyyMMddHHmmss"));
+        return expireTime;
+    }
+
+    /**
+     * 时间戳转日期，格式化
+     *
+     * @param millisecond
+     *        毫秒
+     * @param format
+     * @return
+     *        yyyyMMddHHmmss
+     */
+    public static String timeStamp2Date(String millisecond, String format) {
+        if (millisecond == null || millisecond.isEmpty() || millisecond.equals("null")) {
+            return "";
+        }
+        if (format == null || format.isEmpty())
+            format = "yyyyMMddHHmmss";
+        SimpleDateFormat sdf = new SimpleDateFormat(format);
+        return sdf.format(new Date(Long.valueOf(millisecond)));
+    }
+
+    /**
+     * 调用设备接口返回json数据转换为统一输出格式
+     *
+     * @param deviceArray
+     *        接口返回json
+     * @param mqJson
+     *        请求接口队列参数
+     * @param valueName
+     *        任务主要目标值
+     * @param dateName
+     *        接口返回json中时间值key
+     * @return
+     */
+    public static JSONArray fromatDeviceResultJson(JSONArray deviceArray, JSONObject mqJson, String valueName,
+            String dateName) {
+        JSONArray resultArray = new JSONArray();
+        int device_id = mqJson.getInt("deviceId");
+        int targetTypeId = mqJson.getInt("targetTypeId");
+        for (Object object : deviceArray) {
+            JSONObject subJson = JSONObject.fromObject(object);
+            // JSONObject resultJson = JSONObject.fromObject(mqJson);
+            JSONObject resultJson = new JSONObject();
+            resultJson.put("userId", mqJson.getLong("userId"));
+            resultJson.put("taskId", mqJson.getInt("taskId"));
+            resultJson.put("targetId", mqJson.getInt("targetId"));
+            resultJson.put("targetTypeId", mqJson.getInt("targetTypeId"));
+            resultJson.put("deviceId", mqJson.getInt("deviceId"));
+            String[] valueNames = valueName.split(",");
+            int value = 0;
+            for (String key : valueNames) {
+                value += subJson.getInt(key);
+            }
+            // 跑步返回值扩展字段（跑步距离；跑步卡路里）
+            if (device_id == DeviceConstants.XIAOMI_BAND && targetTypeId == DeviceConstants.RUN) {
+                DecimalFormat df = new DecimalFormat("######0.00");
+                resultJson.put("deriveData", df.format(subJson.getDouble("runDistance") / 1000) + ";"
+                        + df.format(subJson.getDouble("runCalorie")));
+            } else if (device_id == DeviceConstants.YUEDONGQUAN_APP
+                    && (targetTypeId == DeviceConstants.RUN || targetTypeId == DeviceConstants.RIDING)) {
+                value = value / 60 + 1;
+                DecimalFormat df = new DecimalFormat("######0.00");
+                resultJson.put("deriveData", df.format(subJson.getDouble("distance") / 1000) + ";"
+                        + df.format(subJson.getDouble("caloric") / 1000));
+            } else {
+                resultJson.put("deriveData", "");
+            }
+            resultJson.put("value", value);
+            resultJson.put("recordDate", Integer.valueOf(subJson.getString(dateName).replace("-", "").split(" ")[0]));
+            // 调用接口数据写入日志文件
+            saveDeviceDataLog(mqJson.getLong("userId"), device_id, targetTypeId, String.valueOf(value),
+                resultJson.getString("deriveData"), resultJson.getInt("recordDate"), subJson);
+            resultArray.add(resultJson);
+        }
+        return resultArray;
+    }
+
+    /**
+     * 设备数据写入日志文件
+     *
+     * @param userId
+     * @param device_id
+     * @param targetTypeId
+     * @param value
+     * @param deriveData
+     * @param recordDate
+     * @param deviceDataJson
+     *        -- 调用设备接口返回原始
+     */
+    public static void saveDeviceDataLog(long userId, int device_id, int targetTypeId, String value, String deriveData,
+            int recordDate, JSONObject deviceDataJson) {
+        // 写入日志文件 start
+        // JSONObject logJson = new JSONObject();
+        // logJson.put("user_id", mqJson.getLong("userId"));
+        // logJson.put("device_id", device_id);
+        // logJson.put("target_type_id", targetTypeId);
+        // logJson.put("start_date", mqJson.getString("startDate"));
+        // logJson.put("end_date", mqJson.getString("endDate"));
+        // logJson.put("value", value);
+        // logJson.put("derive_data", resultJson.getString("recordDate"));
+        // logJson.put("log", subJson.toString());
+        // logger.fatal(logJson.toString());
+        StringBuffer sb = new StringBuffer();
+        sb.append(userId);
+        sb.append("|");
+        sb.append(device_id);
+        sb.append("|");
+        sb.append(targetTypeId);
+        sb.append("|");
+        sb.append(value);
+        sb.append("|");
+        sb.append(deriveData);
+        sb.append("|");
+        sb.append(recordDate);
+        sb.append("|");
+        if (deviceDataJson == null) {
+            sb.append("");
+        } else {
+            sb.append(deviceDataJson.toString());
+        }
+        logger.fatal(sb.toString());
+        // 写入日志文件 end
+    }
+
+    /**
+     * 格式化当前时间yyyyMMddHHmmss
+     * 
+     * @return
+     */
+    public static long formatNowtime(String style) {
+        Calendar now = Calendar.getInstance();
+        return Long.parseLong(DateFormatUtils.format(now, style));
+    }
+
+    // /**
+    // * 时间戳转换成日期格式字符串
+    // * @param seconds 精确到秒的字符串
+    // * @param formatStr
+    // * @return
+    // */
+    // public static String timeStamp2Date(String seconds,String format) {
+    // if(seconds == null || seconds.isEmpty() || seconds.equals("null")){
+    // return "";
+    // }
+    // if(format == null || format.isEmpty()) format = "yyyy-MM-dd HH:mm:ss";
+    // SimpleDateFormat sdf = new SimpleDateFormat(format);
+    // return sdf.format(new Date(Long.valueOf(seconds+"000")));
+    // }
+    /**
+     * 日期格式字符串转换成时间戳
+     * 
+     * @param date
+     *        字符串日期
+     * @param format
+     *        如：yyyy-MM-dd HH:mm:ss
+     * @return
+     */
+    public static String date2TimeStamp(String date_str, String format) {
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat(format);
+            return String.valueOf(sdf.parse(date_str).getTime() / 1000);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return "";
+    }
+
+    /**
+     * 取得当前时间戳（精确到秒）
+     * 
+     * @return
+     */
+    public static String nowtimeStamp() {
+        long time = System.currentTimeMillis();
+        String t = String.valueOf(time / 1000);
+        return t;
+    }
+
+    /**
+     * 格式化瑰柏日期（yyyymmdd）转换为（yyyy-mm-dd）
+     *
+     * @param date
+     * @return
+     */
+    public static String formatGbDate(String date) {
+        return date.substring(0, 4) + "-" + date.substring(4, 6) + "-" + date.substring(6, 8);
+    }
+
+    /**
+     * 读取配置文件获取分发服务域名
+     *
+     * @param app
+     * @return
+     * @throws DeviceException
+     */
+    public static String getDomain(String app) throws DeviceException {
+        Properties deviceProperties;
+        try {
+            deviceProperties = ConfigUtils.loadProperties("device.properties");
+            return deviceProperties.getProperty(app);
+        } catch (FileException e) {
+            logger.error("读取配置文件获取" + app + "域名异常", e);
+            throw new DeviceException(500101, "读取配置文件获取" + app + "域名异常");
+        }
+    }
+
+    /**
+     * 判断字符串是不是json
+     *
+     * @param str
+     * @return
+     */
+    public static boolean isJson(String str) {
+        try {
+            JSONObject.fromObject(str);
+            return true;
+        } catch (Exception e) {
+            logger.error("{}不是json", str);
+            return false;
+        }
+
+    }
+}

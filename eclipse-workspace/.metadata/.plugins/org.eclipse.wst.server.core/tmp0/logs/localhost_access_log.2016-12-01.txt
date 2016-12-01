@@ -1,0 +1,13 @@
+127.0.0.1 - - [01/Dec/2016:10:11:26 +0800] "GET / HTTP/1.1" 404 994
+127.0.0.1 - - [01/Dec/2016:10:15:57 +0800] "GET /favicon.ico HTTP/1.1" 404 1016
+127.0.0.1 - - [01/Dec/2016:10:15:59 +0800] "GET /haha/page/test/dongya/dongya_index.html HTTP/1.1" 304 -
+127.0.0.1 - - [01/Dec/2016:10:16:00 +0800] "GET /haha/page/test/dongya/device.html HTTP/1.1" 304 -
+127.0.0.1 - - [01/Dec/2016:10:16:02 +0800] "GET /haha/page/test/dongya/oauth/heha.html HTTP/1.1" 304 -
+127.0.0.1 - - [01/Dec/2016:10:16:02 +0800] "GET /haha/static/js/common/common.js?v=2 HTTP/1.1" 304 -
+127.0.0.1 - - [01/Dec/2016:10:16:02 +0800] "GET /haha/page/test/dongya/oauth/heha.js?v=13 HTTP/1.1" 200 2524
+127.0.0.1 - - [01/Dec/2016:10:16:03 +0800] "GET /haha/dongya/getUserByPhone/?phone=18611286597 HTTP/1.1" 200 120
+127.0.0.1 - - [01/Dec/2016:10:16:19 +0800] "POST /haha/test/rest/ HTTP/1.1" 200 114
+127.0.0.1 - - [01/Dec/2016:10:16:43 +0800] "POST /haha/test/rest/ HTTP/1.1" 200 114
+127.0.0.1 - - [01/Dec/2016:10:18:20 +0800] "POST /haha/test/rest/ HTTP/1.1" 200 114
+127.0.0.1 - - [01/Dec/2016:10:18:35 +0800] "POST /haha/test/rest/ HTTP/1.1" 200 114
+127.0.0.1 - - [01/Dec/2016:10:19:12 +0800] "POST /haha/test/rest/ HTTP/1.1" 200 114

@@ -1,0 +1,189 @@
+
+package com.rocedar.device.data.impl;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+
+import org.apache.http.NameValuePair;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import com.rocedar.common.utils.MessageUtils;
+import com.rocedar.common.utils.StringUtil;
+import com.rocedar.device.bean.DeviceTokenBean;
+import com.rocedar.device.data.IDevice;
+import com.rocedar.device.exception.DeviceException;
+import com.rocedar.device.util.DeviceUtil;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+public class DeviceDnurseImpl implements IDevice {
+
+	private Logger logger = LogManager.getLogger(DeviceDnurseImpl.class);
+
+	private static final String DNURSE_APPID = "10114589";
+	private static final String DNURSE_SECRET = "4fd62c3b15fa6782d600b634094e2981";
+
+	@Override
+	public DeviceTokenBean snDeviceBind(long userId, int deviceId, String sn) throws DeviceException {
+		String logDesc = "糖护士血糖绑定接口";
+		String threeResultCode = "";
+		try {
+			threeResultCode = bindKangweiBloodSugar(String.valueOf(userId), sn, "02");
+			logger.debug(threeResultCode);
+		} catch (Exception e) {
+			logger.error(logDesc + "异常={}", threeResultCode);
+			throw new DeviceException(490201);
+		}
+		// threeResultCode =
+		// {"code":"1003","msg":"该设备不存在，请确认SN码是否正确~","obj":"","rows":null,"success":false,"total":""}
+		if (StringUtil.isNotNull(threeResultCode)) {
+			String code = JSONObject.fromObject(threeResultCode).optString("code");
+			String msg = JSONObject.fromObject(threeResultCode).optString("msg");
+			if ("0000".equals(code)) {
+				DeviceTokenBean deviceToken = new DeviceTokenBean();
+				deviceToken.setDeviceId(deviceId);
+				deviceToken.setUserId(userId);
+				deviceToken.setUserDeviceNo(sn);
+				deviceToken.setDeviceUserId(sn);
+				return deviceToken;
+			} else {
+				logger.warn("康为血糖绑定接口返回错误码={}:{}", code, msg);
+				throw new DeviceException(490201, msg);
+			}
+		} else {
+			throw new DeviceException(490201);
+		}
+	}
+
+	@Override
+	public void snDeviceUnbind(long userId, int deviceId, String sn) throws DeviceException {
+		if (sn == null) {
+			logger.debug("sn 为空");
+			throw new DeviceException(490205);
+		}
+		try {
+			JSONObject resultJson = JSONObject.fromObject(unbindKangwei(String.valueOf(userId), sn, "02"));
+			if (!"0000".equals(resultJson.getString("code"))) {
+				throw new DeviceException(490205);
+			}
+		} catch (Exception e) {
+			throw new DeviceException(490205);
+		}
+	}
+
+	/**
+	 * 调用糖护士绑定接口
+	 * 
+	 * {"system":{"key":"79ecff3fb76cec26e717d5cd08e841a5","sign":"a4b509836f217c93cd82163f5ef55ca3","time":1479208799},
+	 * "method":"bindDevice","params":{"app_user_id":"114611487582158779","device_sn":"F862951024692239","device_user":
+	 * "0000","device_type":"000"},"id":"b77e4b8b-7bd9-4e12-b3c9-e42d2c706264"}
+	 * 
+	 * @param appUserId
+	 * @param deviceSn
+	 * @param deviceUser
+	 * @param deviceType
+	 * @return
+	 * @throws Exception
+	 */
+	private String bind37(String appUserId, String deviceSn, String deviceUser, String deviceType) throws Exception {
+		String logDesc = "调用糖护士绑定接口";
+
+		String sign = DNURSE_APPID + deviceSn + time; // 字符串连接
+		sign = MessageUtils.toMD5Hex(sign);
+		sign = MessageUtils.toMD5Hex(sign + DNURSE_SECRET);
+		long time = System.currentTimeMillis() / 1000; //时间戳到秒
+		
+		String method = "bindDevice";
+		String sign = MessageUtils.toMD5Hex("secret:" + SECRET + ",time:" + time + ",method:" + method);
+		JSONObject requestJson = new JSONObject();
+		JSONObject systemJson = new JSONObject();
+		systemJson.put("key", KEY);
+		systemJson.put("sign", sign);
+		systemJson.put("time", time);
+		requestJson.put("system", systemJson);
+		requestJson.put("method", method);
+		JSONObject paramsJson = new JSONObject();
+		paramsJson.put("app_user_id", appUserId);
+		paramsJson.put("device_sn", deviceSn);
+		paramsJson.put("device_user", deviceUser);
+		paramsJson.put("device_type", deviceType);
+		requestJson.put("params", paramsJson);
+		requestJson.put("id", UUID.randomUUID().toString());
+		String response = DeviceUtil.httpPost(HTTP_ADDR, null, null, requestJson.toString());
+		logger.debug(logDesc + "签名参数加密前：" + "secret:" + SECRET + ",time:" + time + ",method:" + method);
+		logger.debug(logDesc + "请求参数：" + requestJson.toString());
+		logger.debug(logDesc + "返回结果：" + response);
+		return response;
+	}
+
+	/**
+	 * 调用37解绑接口
+	 * 
+	 * {"system":{"key":"79ecff3fb76cec26e717d5cd08e841a5","sign":"a4b509836f217c93cd82163f5ef55ca3","time":1479208799},
+	 * "method":"bindDevice","params":{"app_user_id":"114611487582158779","device_sn":"F862951024692239","device_user":
+	 * "0000","device_type":"000"},"id":"b77e4b8b-7bd9-4e12-b3c9-e42d2c706264"}
+	 * 
+	 * @param appUserId
+	 * @param deviceSn
+	 * @param deviceUser
+	 * @param deviceType
+	 * @return
+	 * @throws Exception
+	 */
+	private String unBind37(String appUserId, String deviceSn, String deviceUser, String deviceType) throws Exception {
+		String logDesc = "调用37解绑接口";
+		long time = System.currentTimeMillis() / 1000;
+		String method = "unBindDevice";
+		String sign = MessageUtils.toMD5Hex("secret:" + SECRET + ",time:" + time + ",method:" + method);
+		JSONObject requestJson = new JSONObject();
+		JSONObject systemJson = new JSONObject();
+		systemJson.put("key", KEY);
+		systemJson.put("sign", sign);
+		systemJson.put("time", time);
+		requestJson.put("system", systemJson);
+		requestJson.put("method", method);
+		JSONObject paramsJson = new JSONObject();
+		paramsJson.put("app_user_id", appUserId);
+		paramsJson.put("device_sn", deviceSn);
+		paramsJson.put("device_user", deviceUser);
+		paramsJson.put("device_type", deviceType);
+		requestJson.put("params", paramsJson);
+		requestJson.put("id", UUID.randomUUID().toString());
+		String response = DeviceUtil.httpPost(HTTP_ADDR, null, null, requestJson.toString());
+		logger.debug(logDesc + "签名参数加密前：" + "secret:" + SECRET + ",time:" + time + ",method:" + method);
+		logger.debug(logDesc + "请求参数：" + requestJson.toString());
+		logger.debug(logDesc + "返回结果：" + response);
+		return response;
+	}
+
+	@Override
+	public DeviceTokenBean getAccessTokenFromCode(int deviceId, long userId, String code) throws DeviceException {
+		return null;
+	}
+
+	@Override
+	public JSONArray getRemoteData(JSONObject mqJson) throws DeviceException {
+		return null;
+	}
+
+	@Override
+	public String getOauthCode(int deviceId, long userId) throws DeviceException {
+		return null;
+	}
+
+	@Override
+	public DeviceTokenBean snDeviceBind(long userId, int deviceId, String deviceSn, String deviceUserRole)
+			throws DeviceException {
+		return null;
+	}
+
+	@Override
+	public void snDeviceUnbind(long userId, int deviceId, String deviceSn, String deviceUserRole)
+			throws DeviceException {
+
+	}
+}

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<section name="Workbench">
+	<section name="org.eclipse.buildship.ui.wizard.project.import">
+		<item value="LOCAL_INSTALLATION" key="gradle_distribution_type"/>
+		<item value="/home/zcy/dev/jdk1.8.0_60" key="java_home"/>
+		<item value="false" key="apply_working_sets"/>
+		<item value="/home/zcy/dev/gradle-2.14.1" key="gradle_distribution_configuration"/>
+		<item value="/home/zcy/rocedar/dongya/appserver" key="project_location"/>
+		<list key="working_sets">
+		</list>
+	</section>
+</section>

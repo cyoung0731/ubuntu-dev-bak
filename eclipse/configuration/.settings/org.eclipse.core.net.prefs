@@ -1,0 +1,7 @@
+eclipse.preferences.version=1
+org.eclipse.core.net.hasMigrated=true
+proxiesEnabled=true
+proxyData/SOCKS/hasAuth=false
+proxyData/SOCKS/host=127.0.0.1
+proxyData/SOCKS/port=1080
+systemProxiesEnabled=false

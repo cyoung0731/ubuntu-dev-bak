@@ -1,0 +1,81 @@
+
+package com.rocedar.device.data;
+
+import com.rocedar.device.bean.DeviceTokenBean;
+import com.rocedar.device.exception.DeviceException;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+public interface IDevice {
+
+	/**
+	 * 通过code获取token
+	 * 
+	 * @param deviceId
+	 * @param userId
+	 * @param code
+	 * @return
+	 * @throws DeviceException
+	 */
+	public DeviceTokenBean getAccessTokenFromCode(int deviceId, long userId, String code) throws DeviceException;
+
+	/**
+	 * 调用设备接口获取数据
+	 *
+	 * @param mqJson
+	 * @return
+	 * @throws DeviceException
+	 */
+	// public JSONArray getDevicData(JSONObject mqJson) throws DeviceException;
+
+	/**
+	 * 调用设备接口获取数据
+	 *
+	 * @param mqJson
+	 * @return
+	 * @throws DeviceException
+	 */
+	public JSONArray JSONArray(JSONObject mqJson) throws DeviceException;
+
+	/**
+	 * 获取oauth协议code - 目前只有乐心用
+	 *
+	 * @param deviceId
+	 * @param userId
+	 * @return
+	 * @throws DeviceException
+	 */
+	public String getOauthCode(int deviceId, long userId) throws DeviceException;
+
+	/**
+	 * SN类型设备绑定方法
+	 *
+	 * @param userId
+	 * @param deviceId
+	 * @param sn
+	 * @return
+	 * @throws DeviceException
+	 */
+	/**
+	 * @param userId
+	 * @param deviceId
+	 * @param deviceSn
+	 * @param deviceUserRole
+	 * @return
+	 * @throws DeviceException
+	 */
+	public DeviceTokenBean snDeviceBind(long userId, int deviceId, String deviceSn, String deviceUserRole)
+			throws DeviceException;
+
+	/**
+	 * SN类型设备解绑方法
+	 * 
+	 * @param userId
+	 * @param deviceId
+	 * @param deviceSn
+	 * @param deviceUserRole
+	 * @throws DeviceException
+	 */
+	void snDeviceUnbind(long userId, int deviceId, String deviceSn, String deviceUserRole) throws DeviceException;
+}

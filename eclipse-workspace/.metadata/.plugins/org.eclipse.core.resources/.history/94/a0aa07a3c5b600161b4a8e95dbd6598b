@@ -1,0 +1,77 @@
+/**
+ * CopyRight (c) 2016 北京瑰柏科技有限公司 保留所有权利
+ */
+
+package com.rocedar.device.listener;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.amqp.core.AmqpTemplate;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageListener;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import com.rocedar.device.data.IDevice;
+import com.rocedar.device.data.IDeviceMaker;
+import com.rocedar.device.data.impl.DeviceMakerImpl;
+import com.rocedar.device.exception.DeviceException;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+/**
+ * @author Administrator
+ * @version 1.0.0.2016年3月17日
+ */
+public class TaskDeviceMessageListener implements MessageListener {
+
+	private Logger logger = LogManager.getLogger(TaskDeviceMessageListener.class);
+
+	@Autowired
+	private AmqpTemplate deviceDataMQTemplate;
+
+	@Override
+	public void onMessage(Message message) {
+		String logDesc = "调用设备接口获取远程数据";
+		String messageBody = new String(message.getBody());
+		logger.debug(logDesc + " : messageBody = " + messageBody);
+		try {
+			JSONObject jsonParams = JSONObject.fromObject(messageBody);
+			int deviceId = jsonParams.getInt("deviceId");
+			IDeviceMaker deviceMaker = new DeviceMakerImpl();
+			IDevice deviceServer = deviceMaker.makeDevice(deviceId);
+			JSONArray jsonArray = deviceServer.getRemoteData(jsonParams);
+			if (jsonArray == null || jsonArray.size() == 0) {
+				logger.warn("调用接口返回数据为空");
+			} else {
+				logger.debug("传给山哥的jsonArray={}", jsonArray.toString());
+				logger.debug("jsonArray的size={}", jsonArray.size());
+				deviceDataMQTemplate.convertAndSend(jsonArray);
+				logger.debug("传输完");
+			}
+		} catch (DeviceException e) {
+			if (e.getErrorCode() == 490207) {
+				logger.debug("设备refresh token过期，需要用户重新登录");
+				logger.debug("需要前台处理，调用设备登录页面重新登录！！！！！！！！！！！！！！！！！！！！！！！！！！！！！");
+			} else {
+				logger.error(logDesc + "异常, 参数：" + message.toString(), e);
+			}
+		} catch (Exception e) {
+			logger.error(logDesc + "异常, 参数：" + message.toString()", e);
+		}
+	}
+
+	// // 测试山哥接口
+	// @Override
+	// public void onMessage(Message message) {
+	// String logDesc = "调用设备接口获取远程数据";
+	// String messageBody = new String(message.getBody());
+	// logger.debug(logDesc + " : messageBody = " + messageBody);
+	// String result =
+	// "[{\"userId\":114581687317400003,\"taskId\":3000,\"targetId\":40000,\"targetTypeId\":1000,\"deviceId\":1206001,\"deriveData\":\"3.88;0.20\",\"value\":5001,\"recordDate\":20160423}]";
+	// JSONArray jsonArray = JSONArray.fromObject(result);
+	// deviceDataMQTemplate.convertAndSend(jsonArray);
+	// logger.debug("传输完={}",jsonArray.toString());
+	// }
+
+}

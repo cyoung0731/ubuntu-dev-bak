@@ -1,0 +1,322 @@
+
+package com.rocedar.device.controller;
+
+import java.net.URLDecoder;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.amqp.core.AmqpTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.rocedar.cache.UserCache;
+import com.rocedar.common.result.BasicResult;
+import com.rocedar.common.utils.MessageUtils;
+import com.rocedar.device.result.AioNianjiaResult;
+import com.rocedar.device.service.DeviceService;
+import com.rocedar.device.util.DeviceConstants;
+import com.rocedar.device.util.DeviceUtil;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+@RestController
+public class DeviceUploadController {
+
+	private Logger logger = LogManager.getLogger(DeviceUploadController.class);
+
+	@Autowired
+	private DeviceService deviceService;
+
+	@Autowired
+	private AmqpTemplate deviceDataMQTemplate;
+
+	@Autowired
+	private AmqpTemplate indicatorDataMQTemplate;
+
+	/**
+	 * 动丫上传数据接口
+	 *
+	 * @param token
+	 * @param deviceId
+	 * @param indicatorId
+	 * @param value
+	 * @param deriveData
+	 * @param recordDate
+	 */
+	@RequestMapping(value = "/hy/device/upload/", method = RequestMethod.POST)
+	public BasicResult uploadData(@RequestParam(value = "token", defaultValue = "-1") String token,
+			@RequestParam(value = "device_id", defaultValue = "-1") int deviceId,
+			@RequestParam(value = "task_id", defaultValue = "-1") int taskId,
+			@RequestParam(value = "target_id", defaultValue = "-1") int targetId,
+			@RequestParam(value = "target_type_id", defaultValue = "-1") int targetTypeId,
+			@RequestParam(value = "value", defaultValue = "-1") String value,
+			@RequestParam(value = "derive_data", defaultValue = "") String deriveData,
+			@RequestParam(value = "record_date", defaultValue = "-1") long recordDate) {
+		BasicResult result = null;
+		try {
+			long userId = UserCache.getUserCache().getUserId(token);
+			JSONObject mqJson = new JSONObject();
+			mqJson.put("userId", userId);
+			mqJson.put("taskId", taskId);
+			mqJson.put("targetId", targetId);
+			mqJson.put("targetTypeId", targetTypeId);
+			mqJson.put("deviceId", deviceId);
+			mqJson.put("deriveData", deriveData);
+			mqJson.put("value", value);
+			mqJson.put("recordDate", recordDate);
+			JSONArray mqJsonArray = JSONArray.fromObject(mqJson);
+			logger.debug("传给山哥数据={}", mqJsonArray.toString());
+			deviceDataMQTemplate.convertAndSend(mqJsonArray);
+			logger.debug("传输完");
+			result = new BasicResult(0);
+		} catch (Exception e) {
+			logger.error("上传设备数据异常", e);
+			result = new BasicResult(500101);
+		}
+		return result;
+	}
+
+	/**
+	 * 康为血糖调用接口,上传数据
+	 * http://localhost:8081/device/upload/bloodsugar/kangwei/?pid=a2bc5116e1e3dc2199b97f2f4bd6640d&machine_id=
+	 * efeec6b62451bc91a913ba49602baaad&machine_type=02&time_type=7&data_tamp=20161102&blood_glucose=21
+	 *
+	 * @param pid
+	 *            -- 动吖用户id (77f89920b2289768ed6dae8d994159ba1)
+	 * @param machineId
+	 *            -- 设备id (07e48a848154f276dd5764ee2e915f125)
+	 * @param machineType
+	 *            -- 设备类型,康为血糖仪固定 (02)
+	 * @param timeType
+	 *            -- 时间段类型,一天中分的几段 (1)
+	 * @param dataTamp
+	 *            -- 测量数据时间 (20160428)
+	 * @param bloodGlucose
+	 *            -- 血糖值 (12.12)
+	 * @return
+	 */
+	@RequestMapping(value = "/device/upload/bloodsugar/kangwei/", method = RequestMethod.GET)
+	public BasicResult uploadData(@RequestParam(value = "pid") String pid, // a2bc5116e1e3dc2199b97f2f4bd6640d
+			@RequestParam(value = "machine_id") String machineId,
+			@RequestParam(value = "machine_type") String machineType, @RequestParam(value = "time_type") int timeType,
+			@RequestParam(value = "data_tamp") long dataTamp,
+			@RequestParam(value = "blood_glucose") double bloodGlucose) {
+		String userId = null;
+		try {
+			userId = deviceService.selectBindingDeviceUserId(DeviceConstants.KANGWEI_BLOODSUGAR, machineId);
+			if (userId == null) {
+				logger.warn("康为血糖设备没有被绑定");
+				return new BasicResult(700801);
+			}
+			if (!MessageUtils.toMD5Hex(userId).equals(pid)) {
+				logger.warn("康为血糖设备绑定了另一个账户");
+				return new BasicResult(700802);
+			}
+			logger.debug("pid={} machineId={} machineType={} time_type={} data_tamp={} blood_glucose={}", pid,
+					machineId, machineType, timeType, dataTamp, bloodGlucose);
+
+			// result = uploadData(userId, DeviceConstants.KANGWEI_BLOODSUGAR, DeviceConstants.BLOODSUGAR,
+			// String.valueOf(bloodGlucose), String.valueOf(timeType), dataTamp);
+			// return result;
+			// 发血糖值消息给张展
+			String bsTime = getBloodSugarTime(timeType);
+			sendDataMessage(Long.valueOf(userId), -1, DeviceConstants.KANGWEI_BLOODSUGAR, DeviceConstants.BLOODSUGAR,
+					String.valueOf(bloodGlucose), "", Long.valueOf(dataTamp + bsTime));
+			return new BasicResult(0);
+		} catch (Exception e) {
+			logger.error("康为血糖上传数据异常=", e);
+			return new BasicResult(500101);
+		}
+	}
+
+	/**
+	 * 给山哥发送消息队列 * @param jsonParams
+	 * 
+	 * @param bph
+	 * @param bpl
+	 */
+	private void sendDataMessage(long userId, int companyId, int deviceId, int indicatorId, String value,
+			String deriveData, long recordDate) {
+		JSONArray jsonArray = new JSONArray();
+		JSONObject bpJson = new JSONObject();
+		bpJson.put("userId", userId);
+		bpJson.put("companyId", companyId);
+		bpJson.put("deviceId", deviceId);
+		bpJson.put("indicatorId", indicatorId);
+		bpJson.put("value", value);
+		bpJson.put("deriveData", deriveData);
+		bpJson.put("recordDate", recordDate);
+		jsonArray.add(bpJson);
+		logger.debug("传给山哥的jsonArray={}", jsonArray.toString());
+		indicatorDataMQTemplate.convertAndSend(jsonArray);
+		logger.debug("传输完");
+	}
+
+	/**
+	 * 康为血糖时间段改时间
+	 * 
+	 * @param timeType
+	 * @return
+	 */
+	private String getBloodSugarTime(int timeType) {
+		if (timeType == 1) {// 1早餐前，6-8
+			return "070000";
+		} else if (timeType == 2) { // 2为早餐后，8-10
+			return "090000";
+		} else if (timeType == 3) { // 3为午餐前，11-12
+			return "110000";
+		} else if (timeType == 4) { // 4为午餐后，13-14
+			return "130000";
+		} else if (timeType == 5) { // 5为晚餐前，17-18
+			return "170000";
+		} else if (timeType == 6) { // 6为晚餐后,19-20
+			return "190000";
+		} else if (timeType == 7) { // 7为睡前,22-23
+			return "230000";
+		} else if (timeType == 8) { // 8为凌晨3
+			return "030000";
+		} else {
+			return "000000";
+		}
+		// long time = dataTime % 1000000;
+		// if (3000 <= time && time < 44500) {
+		// return "凌晨";
+		// } else if (44500 <= time && time < 74500) {
+		// return "空腹";
+		// } else if ((101500 <= time && time < 124500) || (151500 <= time && time < 184500)) {
+		// return "餐前";
+		// } else if ((74500 <= time && time < 101500) || (124500 <= time && time < 151500)
+		// || (184500 <= time && time < 211500)) {
+		// return "餐后";
+		// } else if ((211500 <= time && time <= 235959) || (0 <= time && time < 3000)) {
+		// return "睡前";
+		// }
+		// return "未知";
+	}
+
+	/**
+	 * 糖护士-杏-调用接口,上传血糖数据
+	 * http://localhost:8081/device/upload/bloodsugar/dnurse/?dev=123456&time=1478606142&value=6.8&phase=4
+	 * 
+	 * @param dev
+	 *            -- 杏设备SN
+	 * @param time
+	 *            -- 测试时间，从1970年开始的秒值
+	 * @param value
+	 *            -- 测试值
+	 * @param phase
+	 *            -- 时间段
+	 * @return
+	 */
+	@RequestMapping(value = "/device/upload/bloodsugar/dnurse/", method = RequestMethod.GET)
+	public String dnurseUploadbloodsugarData(@RequestParam(value = "dev", defaultValue = "-1") String dev,
+			@RequestParam(value = "time", defaultValue = "-1") String time,
+			@RequestParam(value = "value", defaultValue = "-1") float value,
+			@RequestParam(value = "phase", defaultValue = "-1") int phase) {
+		try {
+			long testTime = Long.valueOf(DeviceUtil.timeStamp2Date(time + "000", "yyyyMMddHHmmss"));
+			String indicatorValue = value + ";" + phase;
+			deviceService.saveDeviceUploadValue(-1, DeviceConstants.DNURSE_XING, dev, -1, DeviceConstants.BLOODSUGAR,
+					indicatorValue, testTime, null);
+			return "ok";
+		} catch (Exception e) {
+			logger.error("康为血糖上传数据异常,参数{dev=" + dev + ", time=" + time + ", value=" + value + ", phase=" + phase + "}",
+					e);
+			return "fail";
+		}
+	}
+
+	/**
+	 * 37血压sim卡-调用接口,上传血糖数据 curl -d
+	 * "sn=test123456&userno=2&hightpressure=120&lowpressure=80&heartrate=88&time=20161114101711"
+	 * http://localhost:8081/device/upload/bloodpressure/37/
+	 * 
+	 * @param sn
+	 *            -- 设备SN
+	 * @param userno
+	 *            -- 用户角色(A角色-1,B角色-2)
+	 * @param hightpressure
+	 *            -- 高压
+	 * @param lowpressure
+	 *            --低压
+	 * @param heartrate
+	 *            -- 心率
+	 * @param time
+	 *            -- 测试时间，yyyyMMddHHmmss(20161114101711)
+	 * 
+	 * @return
+	 */
+	@RequestMapping(value = "/device/upload/37mhealth/", method = RequestMethod.POST)
+	public JSONObject threesevenUploadbloodpressureData(@RequestBody String upData) {
+
+		JSONObject result = new JSONObject();
+
+		// 上传内容不能为空
+		logger.debug("接收37上传数据：bpData＝［" + upData + "］");
+		if (upData == null || "".equals(upData)) {
+			result.put("ret", "01");
+			result.put("error", "上传内容为空");
+			return result;
+		}
+
+		try {
+
+			upData = URLDecoder.decode(upData, "UTF-8");
+			logger.debug("UTF-8解码后：report=［" + upData + "］");
+
+			JSONObject upJson = JSONObject.fromObject(upData);
+			String deviceSn = upJson.getString("device_sn");
+			String deviceUser = upJson.getString("device_user"); // 设备用户标识：多用户设备（血压计）：A 用户 0000；B 用户 0001
+			String deviceType = upJson.getString("device_type"); // 设备类型：血压计-000；血糖仪-001
+
+			// long testTime = Long.valueOf(DeviceUtil.timeStamp2Date(time + "000", "yyyyMMddHHmmss"));
+			// 血压存储格式 (高压;低压)
+			String bloodpressureValue = hightpressure + ";" + lowpressure;
+			deviceService.saveDeviceUploadValue(-1, DeviceConstants.THREESEVEN_BLOODPRESSURE_SIM, sn, userno,
+					DeviceConstants.BLOODPRESSURE, bloodpressureValue, time, null);
+			// 心率
+			deviceService.saveDeviceUploadValue(-1, DeviceConstants.THREESEVEN_BLOODPRESSURE_SIM, sn, userno,
+					DeviceConstants.HEARTRATE, String.valueOf(heartrate), time, null);
+			return new BasicResult(0);
+		} catch (Exception e) {
+			logger.error("37上传数据异常,参数{sn=" + sn + ", userno=" + userno + ", hightpressure=" + hightpressure
+					+ ", lowpressure=" + lowpressure + ", heartrate=" + heartrate + ", time=" + time + "}", e);
+			return new BasicResult(700001, "上传血压数据失败");
+		}
+	}
+
+	// /**
+	// * 乐心调用接口,上传血压数据
+	// http://localhost:8081/device/upload/bloodsugar/dnurse/?dev=123456&time=1478606142&value=6.8&phase=4
+	// *
+	// * @param dev
+	// * -- 杏设备SN
+	// * @param time
+	// * -- 测试时间，从1970年开始的秒值
+	// * @param value
+	// * -- 测试值
+	// * @param phase
+	// * -- 时间段
+	// * @return
+	// */
+	// @RequestMapping(value = "/device/api/pushData", method = RequestMethod.POST)
+	// public JSONObject lexinUploadbloodsugarData(@RequestBody String report) {
+	// try {
+	// long testTime = Long.valueOf(DeviceUtil.timeStamp2Date(time + "000", "yyyyMMddHHmmss"));
+	// String indicatorValue = value + "###" + phase;
+	// deviceService.saveDeviceUploadValue(-1, DeviceConstants.DNURSE_XING, dev, -1, DeviceConstants.BLOODSUGAR,
+	// indicatorValue, testTime, null);
+	// return "ok";
+	// } catch (Exception e) {
+	// logger.error("康为血糖上传数据异常,参数{dev=" + dev + ", time=" + time + ", value=" + value + ", phase=" + phase + "}",
+	// e);
+	// return "fail";
+	// }
+	// }
+
+}

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring comment="Copy element &apos;DeviceServeRPCService.java&apos; to &apos;common/src/main/java/com.rocedar.common.rpc&apos;&#x0A;- Original project: &apos;hycommon&apos;&#x0A;- Destination element: &apos;common/src/main/java/com.rocedar.common.rpc&apos;&#x0A;- Original element: &apos;com.huanyi.common.rpc.DeviceServeRPCService.java&apos;" description="Copy compilation unit" destination="=common/src\/main\/java&lt;com.rocedar.common.rpc" element1="/src\/main\/java&lt;com.huanyi.common.rpc{DeviceServeRPCService.java" files="0" flags="589830" folders="0" id="org.eclipse.jdt.ui.copy" policy="org.eclipse.jdt.ui.copyResources" stamp="1477552175981" units="1" version="1.0"/>
+</session>

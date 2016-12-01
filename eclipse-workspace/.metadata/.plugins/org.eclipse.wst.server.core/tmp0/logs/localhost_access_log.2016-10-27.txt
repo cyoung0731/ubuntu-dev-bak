@@ -1,0 +1,11 @@
+127.0.0.1 - - [27/Oct/2016:16:56:14 +0800] "GET / HTTP/1.1" 404 994
+127.0.0.1 - - [27/Oct/2016:16:56:19 +0800] "GET /haha/page/test/dongya/dongya_get_device_data.html HTTP/1.1" 304 -
+127.0.0.1 - - [27/Oct/2016:16:56:19 +0800] "GET /haha/static/js/common/common.js HTTP/1.1" 304 -
+127.0.0.1 - - [27/Oct/2016:16:56:19 +0800] "GET /haha/page/test/dongya/dongya_get_device_data.js HTTP/1.1" 304 -
+127.0.0.1 - - [27/Oct/2016:16:56:19 +0800] "GET /haha/static/js/jquery-1.12.4.min.js HTTP/1.1" 304 -
+127.0.0.1 - - [27/Oct/2016:16:56:30 +0800] "GET /haha/dongya/getdevicedata/?userId=114611487582158778&deviceId=1204001&targetTypeId=1000&targetId=4000&tasktId=3000&startDate=20161027&endDate=20161027 HTTP/1.1" 200 -
+127.0.0.1 - - [27/Oct/2016:16:57:57 +0800] "GET /haha/dongya/getdevicedata/?userId=114611487582158778&deviceId=1204001&targetTypeId=1000&targetId=4000&tasktId=3000&startDate=20161027&endDate=20161027 HTTP/1.1" 200 -
+127.0.0.1 - - [27/Oct/2016:16:58:19 +0800] "GET /haha/dongya/getdevicedata/?userId=114611487582158778&deviceId=1204001&targetTypeId=4013&targetId=4000&tasktId=3000&startDate=20161027&endDate=20161027 HTTP/1.1" 200 -
+127.0.0.1 - - [27/Oct/2016:17:07:30 +0800] "GET /haha/dongya/getdevicedata/?userId=114611487582158778&deviceId=1204001&targetTypeId=4013&targetId=4000&tasktId=3000&startDate=20161027&endDate=20161027 HTTP/1.1" 200 -
+127.0.0.1 - - [27/Oct/2016:17:11:46 +0800] "GET /haha/dongya/getdevicedata/?userId=114611487582158778&deviceId=1204001&targetTypeId=4013&targetId=4000&tasktId=3000&startDate=20161027&endDate=20161027 HTTP/1.1" 200 -
+127.0.0.1 - - [27/Oct/2016:17:27:36 +0800] "GET / HTTP/1.1" 404 994

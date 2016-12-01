@@ -1,0 +1,222 @@
+
+package com.rocedar.device.data.impl;
+
+/**
+ * 乐心sn码绑定设备处理类
+ * @author  zcy
+ * @version 1.0.0.2016年11月16日
+ */
+
+import java.util.UUID;
+
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import com.rocedar.common.utils.MessageUtils;
+import com.rocedar.device.bean.DeviceTokenBean;
+import com.rocedar.device.data.IDevice;
+import com.rocedar.device.exception.DeviceException;
+import com.rocedar.device.util.DeviceConstants;
+import com.rocedar.device.util.DeviceUtil;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+public class DeviceLexinSnImpl implements IDevice {
+
+	private Logger logger = LogManager.getLogger(DeviceLexinSnImpl.class);
+
+	private static final String LEXIN_APPID= "cda1694c21877e113ca7a1906b0c70fb156f75dc";
+	private static final String LEXIN_APPSECRET= "835d3de8f5f561715a506ae4d60ebc11f893f416";
+
+	@Override
+	public DeviceTokenBean snDeviceBind(long userId, int deviceId, String deviceSn, String userRole)
+			throws DeviceException {
+		String logDesc = "37健康绑定接口";
+		String deviceType = "";
+		String userno = "";
+		if (deviceId == DeviceConstants.THREESEVEN_BLOODPRESSURE_SIM) {
+			deviceType = "000"; // 血压计
+			if ("1".equals(userRole)) {
+				userno = "0000";
+			} else if ("2".equals(userRole)) {
+				userno = "0001";
+			}
+		} else {
+			throw new DeviceException(701201);
+		}
+		try {
+			String registerResponse = register37(String.valueOf(userId));
+			JSONObject registerJson = JSONObject.fromObject(registerResponse);
+			if ("0000".equals(registerJson.getJSONObject("result").getString("code"))) {
+				String bindResopnse = bind37(String.valueOf(userId), deviceSn, userno, deviceType);
+				JSONObject bindJson = JSONObject.fromObject(bindResopnse);
+				if ("0000".equals(bindJson.getJSONObject("result").getString("code"))) {
+					DeviceTokenBean deviceToken = new DeviceTokenBean();
+					deviceToken.setDeviceId(deviceId);
+					deviceToken.setUserId(userId);
+					deviceToken.setUserDeviceNo(deviceSn + userRole);
+					deviceToken.setDeviceUserId(userno);
+					return deviceToken;
+				} else {
+					logger.error(logDesc + "失败，调用37绑定设备接口失败，接口返回：{},参数：userId={},deviceId={},deviceSn={},userRole={}",
+							registerResponse, userId, deviceId, deviceSn, userRole);
+					throw new DeviceException(701203);
+				}
+			} else {
+				logger.error(logDesc + "失败，调用37注册用户接口失败，接口返回：{},参数：userId={}", registerResponse, userId);
+				throw new DeviceException(701202);
+			}
+		} catch (Exception e) {
+			logger.error(logDesc + "异常，参数：userId=" + userId + ",deviceId=" + deviceId + ",deviceSn=" + deviceSn
+					+ ",userRole=" + userRole + "", e);
+			throw new DeviceException(701203);
+		}
+	}
+
+	@Override
+	public void snDeviceUnbind(long userId, int deviceId, String deviceSn, String userRole) throws DeviceException {
+		String logDesc = "37健康解绑接口";
+		String deviceType = "";
+		if (deviceId == DeviceConstants.THREESEVEN_BLOODPRESSURE_SIM) {
+			deviceType = "000"; // 血压计
+		} else {
+			throw new DeviceException(701201);
+		}
+		try {
+			String unBindResponse = unBind37(String.valueOf(userId), deviceSn, userRole, deviceType);
+			JSONObject unBindJson = JSONObject.fromObject(unBindResponse);
+			if ("0000".equals(unBindJson.getJSONObject("result").getString("code"))) {
+			} else {
+				logger.error(logDesc + "失败，接口返回：{},参数：userId={},deviceId={},deviceSn={},userRole={}", unBindResponse,
+						userId, deviceId, deviceSn, userRole);
+				throw new DeviceException(701203);
+			}
+		} catch (Exception e) {
+			logger.error(logDesc + "异常，参数：userId=" + userId + ",deviceId=" + deviceId + ",deviceSn=" + deviceSn
+					+ ",userRole=" + userRole + "", e);
+			throw new DeviceException(701203);
+		}
+	}
+
+	/**
+	 * 调用37绑定接口
+	 * 
+	 * {"system":{"key":"79ecff3fb76cec26e717d5cd08e841a5","sign":"a4b509836f217c93cd82163f5ef55ca3","time":1479208799},
+	 * "method":"bindDevice","params":{"app_user_id":"114611487582158779","device_sn":"F862951024692239","device_user":
+	 * "0000","device_type":"000"},"id":"b77e4b8b-7bd9-4e12-b3c9-e42d2c706264"}
+	 * 
+	 * @param appUserId
+	 * @param deviceSn
+	 * @param deviceUser
+	 * @param deviceType
+	 * @return
+	 * @throws Exception
+	 */
+	private String bindLexin(String appUserId, String deviceSn, String deviceUser, String deviceType) throws Exception {
+		String logDesc = "调用乐心sn绑定接口";
+		String url = "http://open.lifesense.com/deviceopenapi_service/device/api/bindOperatorDevice";
+		long timestamp = System.currentTimeMillis()/1000;
+		String nonce = "jeidjgks";
+		logger.debug(LEXIN_APPID+LEXIN_APPSECRET+String.valueOf(timestamp)+nonce);
+	    String checksum = DigestUtils.sha1Hex(LEXIN_APPID+LEXIN_APPSECRET+String.valueOf(timestamp)+nonce);
+	    logger.debug("乐心签名="+checksum1);
+//		String checksum = getLXSnChecksum(new String[] { LEXIN_APPID,LEXIN_APPSECRET, String.valueOf(timestamp), nonce });
+		url = url + "?appid="+LEXIN_APPID+"&timestamp="+timestamp+"&nonce="+nonce+"&checksum="+checksum;
+		System.out.println("url : \n"+url);
+		JSONObject entityJson = new JSONObject();
+        entityJson.put("deviceId", "530805319563");
+//        entityJson.put("mobile", "18611286599");
+        entityJson.put("userNo", "1");
+        System.out.println("参数 : \n"+entityJson.toString());
+        try {
+			String response = lexinHttpPost(url, null, null, entityJson.toString());
+			System.out.println(response);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		
+		
+		
+		
+		
+		long time = System.currentTimeMillis() / 1000;
+		String method = "bindDevice";
+		String sign = MessageUtils.toMD5Hex("secret:" + SECRET + ",time:" + time + ",method:" + method);
+		JSONObject requestJson = new JSONObject();
+		JSONObject systemJson = new JSONObject();
+		systemJson.put("key", KEY);
+		systemJson.put("sign", sign);
+		systemJson.put("time", time);
+		requestJson.put("system", systemJson);
+		requestJson.put("method", method);
+		JSONObject paramsJson = new JSONObject();
+		paramsJson.put("app_user_id", appUserId);
+		paramsJson.put("device_sn", deviceSn);
+		paramsJson.put("device_user", deviceUser);
+		paramsJson.put("device_type", deviceType);
+		requestJson.put("params", paramsJson);
+		requestJson.put("id", UUID.randomUUID().toString());
+		String response = DeviceUtil.httpPost(HTTP_ADDR, null, null, requestJson.toString());
+		logger.debug(logDesc + "签名参数加密前：" + "secret:" + SECRET + ",time:" + time + ",method:" + method);
+		logger.debug(logDesc + "请求参数：" + requestJson.toString());
+		logger.debug(logDesc + "返回结果：" + response);
+		return response;
+	}
+
+	/**
+	 * 调用37解绑接口
+	 * 
+	 * {"system":{"key":"79ecff3fb76cec26e717d5cd08e841a5","sign":"a4b509836f217c93cd82163f5ef55ca3","time":1479208799},
+	 * "method":"bindDevice","params":{"app_user_id":"114611487582158779","device_sn":"F862951024692239","device_user":
+	 * "0000","device_type":"000"},"id":"b77e4b8b-7bd9-4e12-b3c9-e42d2c706264"}
+	 * 
+	 * @param appUserId
+	 * @param deviceSn
+	 * @param deviceUser
+	 * @param deviceType
+	 * @return
+	 * @throws Exception
+	 */
+	private String unBind37(String appUserId, String deviceSn, String deviceUser, String deviceType) throws Exception {
+		String logDesc = "调用37解绑接口";
+		long time = System.currentTimeMillis() / 1000;
+		String method = "unBindDevice";
+		String sign = MessageUtils.toMD5Hex("secret:" + SECRET + ",time:" + time + ",method:" + method);
+		JSONObject requestJson = new JSONObject();
+		JSONObject systemJson = new JSONObject();
+		systemJson.put("key", KEY);
+		systemJson.put("sign", sign);
+		systemJson.put("time", time);
+		requestJson.put("system", systemJson);
+		requestJson.put("method", method);
+		JSONObject paramsJson = new JSONObject();
+		paramsJson.put("app_user_id", appUserId);
+		paramsJson.put("device_sn", deviceSn);
+		paramsJson.put("device_user", deviceUser);
+		paramsJson.put("device_type", deviceType);
+		requestJson.put("params", paramsJson);
+		requestJson.put("id", UUID.randomUUID().toString());
+		String response = DeviceUtil.httpPost(HTTP_ADDR, null, null, requestJson.toString());
+		logger.debug(logDesc + "签名参数加密前：" + "secret:" + SECRET + ",time:" + time + ",method:" + method);
+		logger.debug(logDesc + "请求参数：" + requestJson.toString());
+		logger.debug(logDesc + "返回结果：" + response);
+		return response;
+	}
+
+	@Override
+	public DeviceTokenBean getAccessTokenFromCode(int deviceId, long userId, String code) throws DeviceException {
+		return null;
+	}
+
+	@Override
+	public JSONArray getRemoteData(JSONObject mqJson) throws DeviceException {
+		return null;
+	}
+
+	@Override
+	public String getOauthCode(int deviceId, long userId) throws DeviceException {
+		return null;
+	}
+}

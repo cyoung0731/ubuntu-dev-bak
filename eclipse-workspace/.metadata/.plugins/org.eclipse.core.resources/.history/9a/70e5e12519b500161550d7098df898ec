@@ -1,0 +1,46 @@
+/**
+ * CopyRight (c) 2016 北京瑰柏科技有限公司 保留所有权利
+ */
+
+package com.huanyi.device.bean;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+/**
+ * @author zcy
+ * @version 1.0.0.2016年11月28日
+ */
+@Component("deviceConfigInfo")
+public class DeviceConfigInfoBean {
+
+    @Value("${domain.distribute}")
+    private int domainDistribute;
+    
+    //行为数据指数计算天数
+    @Value("${index.days.limit}")
+    private int indexDaysLimit;
+    //体征指标计算天数
+    @Value("${indicator.data.limit}")
+    private int indciatorDataLimit;
+    
+    @Value("${page.size}")
+    private int pageSize;
+        
+    public int getUserTaskLimit() {
+        return userTaskLimit;
+    }
+
+    public int getIndexDaysLimit() {
+        return indexDaysLimit;
+    }
+
+    public int getIndciatorDataLimit() {
+        return indciatorDataLimit;
+    }
+
+    public int getPageSize() {
+        return pageSize;
+    }
+
+}

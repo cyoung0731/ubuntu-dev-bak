@@ -1,0 +1,12 @@
+eclipse.preferences.version=1
+needsMigration=false
+org.springsource.ide.eclipse.gradle.core.preferences.GradlePreferences.AUTO_REFRESH_DELAY=5000
+org.springsource.ide.eclipse.gradle.core.preferences.GradlePreferences.AUTO_REFRESH_DEPENDENCIES=false
+org.springsource.ide.eclipse.gradle.core.preferences.GradlePreferences.DISTRIBUTION=file\:/home/zcy/dev/gradle-2.14.1/
+org.springsource.ide.eclipse.gradle.core.preferences.GradlePreferences.EXPORT_DEPENDENCIES=true
+org.springsource.ide.eclipse.gradle.core.preferences.GradlePreferences.GRADLE_USER_HOME=/home/zcy/dev/gradle_user_dir
+org.springsource.ide.eclipse.gradle.core.preferences.GradlePreferences.JAR_REMAP_GRADLE_TO_GRADLE=false
+org.springsource.ide.eclipse.gradle.core.preferences.GradlePreferences.JAR_REMAP_GRADLE_TO_MAVEN=true
+org.springsource.ide.eclipse.gradle.core.preferences.GradlePreferences.JAR_REMAP_ON_OPEN_CLOSE=true
+org.springsource.ide.eclipse.gradle.core.preferences.GradlePreferencesUSE_CUSTOM_TOOLING_MODEL=false
+org.springsource.ide.eclipse.gradle.ui.wizards.GradleImportWizardPageOne.RF_HIST=/home/zcy/dev/git/haha;/home/zcy/rocedar/fangzhou/fz_server;/home/zcy/rocedar/dongya/appserver;

@@ -1,0 +1,516 @@
+package com.rocedar.device.controller;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.ModelAndView;
+
+import com.rocedar.cache.UserCache;
+import com.rocedar.common.result.BasicResult;
+import com.rocedar.common.result.JsonArrayResult;
+import com.rocedar.common.result.JsonObjectResult;
+import com.rocedar.device.bean.DeviceGudongBean;
+import com.rocedar.device.bean.DeviceTokenBean;
+import com.rocedar.device.data.IDevice;
+import com.rocedar.device.data.IDeviceMaker;
+import com.rocedar.device.data.impl.DeviceMakerImpl;
+import com.rocedar.device.exception.DeviceException;
+import com.rocedar.device.service.DeviceService;
+import com.rocedar.device.util.DeviceConstants;
+import com.rocedar.device.util.DeviceUtil;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+@RestController
+public class DeviceController {
+
+	private Logger logger = LogManager.getLogger(DeviceController.class);
+
+	@Autowired
+	private DeviceService deviceService;
+
+	/**
+	 * 查询新首页推荐设备列表
+	 * 
+	 * @return
+	 */
+	@RequestMapping(value = "/device/kinds/", method = RequestMethod.GET)
+	public BasicResult getDeviceKinds() {
+		JSONArray result = new JSONArray();
+		JSONObject deviceKind = new JSONObject();
+		deviceKind.put("device_kind_id", "1001");
+		deviceKind.put("device_kind_name", "运动计步");
+		result.add(deviceKind);
+		deviceKind.put("device_kind_id", "1002");
+		deviceKind.put("device_kind_name", "血糖监测");
+		result.add(deviceKind);
+		deviceKind.put("device_kind_id", "1003");
+		deviceKind.put("device_kind_name", "血压监测");
+		result.add(deviceKind);
+		deviceKind.put("device_kind_id", "1004");
+		deviceKind.put("device_kind_name", "体重体脂");
+		result.add(deviceKind);
+		return new JsonArrayResult(0, result);
+	}
+
+	/**
+	 * 查询设备详情页面信息
+	 * 
+	 * @param token
+	 * @param kindId
+	 * @param osType
+	 * @param appVersion
+	 * @return
+	 */
+	@RequestMapping(value = "/device/info/", method = RequestMethod.GET)
+	public BasicResult getDeviceInfo(@RequestParam(value = "token", defaultValue = "-1") String token,
+			@RequestParam(value = "device_id", defaultValue = "-1") int deviceId,
+			@RequestHeader(value = "os", defaultValue = "-1") int osType,
+			@RequestHeader(value = "app-version", defaultValue = "1000") int appVersion) {
+		try {
+			long userId = UserCache.getUserCache().getUserId(token);
+			JSONObject deviceInfo = deviceService.getDeviceInfo(deviceId, userId, osType, token, appVersion);
+			return new JsonObjectResult(0, deviceInfo);
+		} catch (Exception e) {
+			logger.error("获取设备列表出错，参数：token=" + token + ",device_id=" + deviceId + ",os=" + osType + "app-version="
+					+ appVersion, e);
+			return new BasicResult(490203, "获取设备列表失败");
+		}
+	}
+
+	/**
+	 * 获取设备列表
+	 * 
+	 * @param userId
+	 * @param taskId
+	 * @return
+	 */
+	@RequestMapping(value = "/device/list/", method = RequestMethod.GET)
+	public BasicResult getDeviceList(@RequestParam(value = "token", defaultValue = "-1") String token,
+			@RequestParam(value = "task_id", defaultValue = "-1") int taskId,
+			@RequestParam(value = "indicator_id", defaultValue = "-1") int indicatorId,
+			@RequestHeader(value = "os", defaultValue = "-1") int osType,
+			@RequestHeader(value = "app-version", defaultValue = "1000") int appVersion) {
+		JSONArray deviceArray = null;
+		try {
+			long userId = UserCache.getUserCache().getUserId(token);
+
+			if (appVersion >= 3300) { // 新设备列表
+				if (indicatorId == -1) {
+					deviceArray = deviceService.getDevicesByTaskNew(userId, taskId, osType, token, appVersion);
+				} else {
+					deviceArray = deviceService.getDevicesByIndicatorNew(userId, indicatorId, osType, token,
+							appVersion);
+				}
+			} else { // 老设备列表
+				if (indicatorId == -1) {
+					deviceArray = deviceService.getDevices(userId, taskId, osType, token, appVersion);
+				} else {
+					deviceArray = deviceService.getDevicesByIndicator(userId, indicatorId, osType, token, appVersion);
+				}
+			}
+
+			return new JsonArrayResult(0, deviceArray);
+		} catch (Exception e) {
+			logger.error("获取设备列表出错", e);
+			return new BasicResult(490203, "获取设备列表失败");
+		}
+	}
+
+	/**
+	 * 根据指标id查询子设备列表
+	 * 
+	 * @param token
+	 * @param deviceKind
+	 *            可不传
+	 * @param indicatorId
+	 *            可不传
+	 * @param osType
+	 * @param appVersion
+	 * @return
+	 */
+	@RequestMapping(value = "/device/list/bytype/", method = RequestMethod.GET)
+	public BasicResult getDeviceListByIndicator(@RequestParam(value = "token", defaultValue = "-1") String token,
+			@RequestParam(value = "device_kind", defaultValue = "-1") int deviceKind,
+			@RequestParam(value = "indicator_id", defaultValue = "-1") int indicatorId,
+			@RequestHeader(value = "os", defaultValue = "-1") int osType,
+			@RequestHeader(value = "app-version", defaultValue = "1000") int appVersion) {
+		JSONArray deviceArray = null;
+		try {
+			if (deviceKind != -1) {
+				deviceArray = deviceService.getDevicesByKind(deviceKind, osType);
+			} else if (indicatorId != -1) {
+				long userId = UserCache.getUserCache().getUserId(token);
+				deviceArray = deviceService.getDevicesByIndicatorNew(userId, indicatorId, osType, token, appVersion);
+			} else {
+				logger.error("参数不全，device_kind或indicator_id传一个");
+				return new BasicResult(490203, "获取设备列表失败");
+			}
+			return new JsonArrayResult(0, deviceArray);
+		} catch (Exception e) {
+			logger.error("获取设备列表出错", e);
+			return new BasicResult(490203, "获取设备列表失败");
+		}
+	}
+
+	/**
+	 * 按分类查询新首页推荐设备列表
+	 * 
+	 * @param token
+	 * @param kindId
+	 * @param osType
+	 * @param appVersion
+	 * @return
+	 */
+	@RequestMapping(value = "/device/list/bykind/", method = RequestMethod.GET)
+	public BasicResult getDeviceListByKinds(@RequestParam(value = "device_kind", defaultValue = "-1") int deviceKind,
+			@RequestHeader(value = "os", defaultValue = "-1") int osType,
+			@RequestHeader(value = "app-version", defaultValue = "1000") int appVersion) {
+		JSONArray deviceArray = null;
+		try {
+			deviceArray = deviceService.getDevicesByKind(deviceKind, osType);
+			return new JsonArrayResult(0, deviceArray);
+		} catch (Exception e) {
+			logger.error("获取设备列表出错", e);
+			return new BasicResult(490203, "获取设备列表失败");
+		}
+	}
+
+	/**
+	 * oauth第三方回调接口
+	 * 
+	 * @param deviceId
+	 * @param code
+	 * @param openId
+	 * @param relogin
+	 */
+	@RequestMapping("/device/oauth2/{device_id}/")
+	public void oauth(@PathVariable("device_id") int deviceId,
+			@RequestParam(value = "code", defaultValue = "-1") String code,
+			@RequestParam(value = "open_id", defaultValue = "-1") String openId, // 悦动圈回调参数
+			@RequestParam(value = "relogin", defaultValue = "-1") int relogin) {
+		logger.debug("第三方oauth2协议回调参数：device_id={},code={},open_id={}", deviceId, code);
+		if (deviceId == DeviceConstants.YUEDONGQUAN_APP) {
+			code = openId;
+		}
+	}
+
+	/**
+	 * 获取oauth2协议code 目前乐心用,调用乐心接口进入第三方登录页面,url中有时间戳参数,不固定
+	 * 
+	 * @param deviceId
+	 * @return
+	 */
+	@RequestMapping("/device/oauth2/code/{device_id}/")
+	public ModelAndView getOauthCode(@PathVariable("device_id") int deviceId) {
+		IDeviceMaker deviceMaker = new DeviceMakerImpl();
+		IDevice deviceServer = deviceMaker.makeDevice(deviceId);
+		try {
+			String msg = deviceServer.getOauthCode(deviceId, 123l).replace("https:", "http:");
+			// return new ModelAndView("/device/bind/lexin_login", "msg", msg);
+			return new ModelAndView("redirect:" + msg);
+		} catch (DeviceException e) {
+			logger.error("获取设备oauth协议code异常:{}", e);
+			return new ModelAndView("/device/aio/error", "msg", "0");
+		}
+	}
+
+	/**
+	 * 绑定-先通过code获取token
+	 *
+	 * @param deviceId
+	 * @param code
+	 *            (oauth时传code,蓝牙时传MAC地址,sn时传sn码)
+	 * @param token
+	 * @param bindType
+	 *            详情页bind_type
+	 * @param userIdRole[{"role_id":1,"user_id":114575065034750014},{"role_id":2,"user_id":114576668386620038}]
+	 * @param relogin
+	 * @return
+	 */
+	@RequestMapping(value = "/device/bind/", method = RequestMethod.POST)
+	public BasicResult bindDevice(@RequestParam(value = "device_id", defaultValue = "-1") int deviceId,
+			@RequestParam(value = "code", defaultValue = "-1") String code,
+			@RequestParam(value = "token", defaultValue = "-1") String token,
+			@RequestParam(value = "bind_type", defaultValue = "1") int bindType,
+			@RequestParam(value = "user_id_role", defaultValue = "-1") String userIdRole) {
+		if ("-1".equals(userIdRole)) {
+			long userId;
+			try {
+				userId = UserCache.getUserCache().getUserId(token);
+			} catch (Exception e) {
+				logger.error("绑定设备出错，参数：deviceId=" + deviceId + ",code=" + code + ",token=" + token + ",bindType="
+						+ bindType + ",userIdRole=" + userIdRole, e);
+				return new BasicResult(490201, "绑定设备失败");
+			}
+			return doBindDevice(deviceId, code, userId, bindType, "-1");
+		} else {
+			JSONArray userIdRoleArray = JSONArray.fromObject(userIdRole);
+			StringBuffer sb = new StringBuffer();
+			for (Object object : userIdRoleArray) {
+				JSONObject userIdRoleJson = JSONObject.fromObject(object);
+				long userId = userIdRoleJson.getLong("user_id");
+				String roleId = "-1";
+				if (userIdRoleJson.has("role_id")) {
+					roleId = userIdRoleJson.getString("role_id");
+				}
+				BasicResult roleResult = doBindDevice(deviceId, code, userId, bindType, roleId);
+				if (roleResult.getStatus() != 0) {
+					logger.error("调用绑定方法失败。角色" + roleId + "绑定设备失败。 返回错误信息：" + roleResult.getMsg() + "  参数：deviceId="
+							+ deviceId + ",code=" + code + ",userId=" + userId + ",bindType=" + bindType
+							+ ",userIdRole=" + roleId);
+					// sb.append("角色" + roleId + "绑定设备失败。 ");
+				}
+				sb.append("角色" + roleId.replace("-1", "") + "：" + roleResult.msg + " ");
+			}
+			if (sb.length() == 0) {
+				return new BasicResult(0, "绑定成功");
+			} else {
+				return new BasicResult(490201, sb.toString());
+			}
+		}
+	}
+
+	private BasicResult doBindDevice(int deviceId, String code, long userId, int bindType, String deviceUserRole) {
+		try {
+			IDeviceMaker deviceMaker = new DeviceMakerImpl();
+			IDevice deviceServer = deviceMaker.makeDevice(deviceId);
+			if (deviceServer == null) {
+				return new BasicResult(490201, "此设备不存在");
+			}
+			if (deviceId == DeviceConstants.FITBIT_BAND) {
+				code = code.split("#")[0];
+			}
+			if (deviceService.ifDeviceBind(userId, deviceId)) { // 设备已绑定 刷新绑定关系
+				DeviceTokenBean deviceToken = new DeviceTokenBean();
+				if (bindType == 1) {
+					deviceToken = deviceServer.getAccessTokenFromCode(deviceId, userId, code);
+				} else if (bindType == 4 || bindType == 5) {
+					deviceToken.setDeviceId(deviceId);
+					deviceToken.setUserId(userId);
+					deviceToken.setDeviceUserId(code);
+					deviceToken.setAccessToken(code);
+					deviceToken.setExpireTime(30000000000000l);
+				} else if (bindType == 3) {
+					deviceToken = deviceServer.snDeviceBind(userId, deviceId, code, deviceUserRole);
+				}
+				if (deviceToken != null) {
+					deviceToken.setDeviceUserRole(deviceUserRole);
+				}
+				deviceService.reLogin(deviceToken);
+			} else { // 设备未绑定 开始绑定
+				DeviceTokenBean deviceToken = new DeviceTokenBean();
+				if (bindType == 1) {
+					deviceToken = deviceServer.getAccessTokenFromCode(deviceId, userId, code);
+				} else if (bindType == 4 || bindType == 5) {
+					deviceToken.setDeviceId(deviceId);
+					deviceToken.setUserId(userId);
+					deviceToken.setDeviceUserId(code);
+					deviceToken.setAccessToken(code);
+					deviceToken.setExpireTime(30000000000000l);
+				} else if (bindType == 3) {
+					deviceToken = deviceServer.snDeviceBind(userId, deviceId, code, deviceUserRole);
+				}
+				if (deviceToken != null) {
+					deviceToken.setDeviceUserRole(deviceUserRole);
+				}
+				deviceService.bind(deviceToken);
+			}
+			return new BasicResult(0, "绑定成功");
+		} catch (DeviceException e) {
+			logger.error("绑定设备出错，参数：deviceId=" + deviceId + ",code=" + code + ",userId=" + userId + ",bindType="
+					+ bindType + ",deviceUserRole=" + deviceUserRole, e);
+			if (e.getMessage() != null && "" != e.getMessage()) {
+				return new BasicResult(490201, e.getMessage());
+			}
+			return new BasicResult(490201, "绑定设备失败");
+		} catch (Exception e) {
+			logger.error("绑定设备出错，参数：deviceId=" + deviceId + ",code=" + code + ",userId=" + userId + ",bindType="
+					+ bindType + ",deviceUserRole=" + deviceUserRole, e);
+			return new BasicResult(490201, "绑定设备失败");
+		}
+	}
+
+	/**
+	 * 绑定-蓝牙方式
+	 * 
+	 * @param deviceId
+	 * @param macAddr
+	 * @param token
+	 * @return
+	 */
+	@RequestMapping(value = "/device/bind/bluetooth/", method = RequestMethod.POST)
+	public BasicResult bindBluetoothDevice(@RequestParam(value = "device_id", defaultValue = "-1") int deviceId,
+			@RequestParam(value = "mac_addr", defaultValue = "-1") String macAddr,
+			@RequestParam(value = "token", defaultValue = "-1") String token,
+			@RequestParam(value = "relogin", defaultValue = "-1") int relogin) {
+		return bindDevice(deviceId, macAddr, token, 4, "-1");
+	}
+
+	/**
+	 * 设备上传数据接口
+	 * 
+	 * @param deviceId
+	 * @param macAddr
+	 * @param token
+	 * @return
+	 */
+	@RequestMapping(value = "/device/upload/data/", method = RequestMethod.POST)
+	public BasicResult deviceUploadData(@RequestParam(value = "device_id", defaultValue = "-1") int deviceId,
+			@RequestParam(value = "mac_addr", defaultValue = "-1") String macAddr,
+			@RequestParam(value = "token", defaultValue = "-1") String token,
+			@RequestParam(value = "relogin", defaultValue = "-1") int relogin) {
+		return bindDevice(deviceId, macAddr, token, 4, "-1");
+	}
+
+	/**
+	 * 查询蓝牙设备mac地址
+	 * 
+	 * @param deviceId
+	 * @param macAddr
+	 * @param token
+	 * @return
+	 */
+	@RequestMapping(value = "/device/get/bluetooth/mac/", method = RequestMethod.GET)
+	public BasicResult getBluetoothMac(@RequestParam(value = "device_id", defaultValue = "-1") int deviceId,
+			@RequestParam(value = "token", defaultValue = "-1") String token) {
+		long userId;
+		try {
+			userId = UserCache.getUserCache().getUserId(token);
+			JSONObject macJson = deviceService.getBluetoothMac(deviceId, userId);
+			if (macJson != null) {
+				return new JsonObjectResult(0, macJson);
+			} else {
+				return new BasicResult(500101, "查询蓝牙设备mac地址为空");
+			}
+		} catch (Exception e) {
+			logger.error("查询蓝牙设备mac地址异常", e);
+			return new BasicResult(500101);
+		}
+
+	}
+	//
+	// /**
+	// * 解绑设备
+	// *
+	// * @param deviceId
+	// * @param userId
+	// * @return
+	// */
+	// @RequestMapping(value = "/device/unbind/", method = RequestMethod.POST)
+	// public BasicResult unbindDevice(@RequestParam(value = "device_id", defaultValue = "-1") int deviceId,
+	// @RequestParam(value = "user_id", defaultValue = "-1") long userId) {
+	// BasicResult result = null;
+	// try {
+	// deviceService.deleteDeviceBind(userId, deviceId);
+	// result = new BasicResult(0);
+	// } catch (DeviceException e) {
+	// logger.error("设备解绑失败", e);
+	// result = new BasicResult(490205, "设备解绑失败");
+	// }
+	// return result;
+	// }
+
+	/**
+	 * 咕咚APP通知接口
+	 *
+	 * @param deviceId
+	 * @param userId
+	 * @param catalog
+	 * @param resourceId
+	 * @param startTime
+	 * @param endTime
+	 */
+	@RequestMapping(value = "/device/upload/{device_id}/", method = RequestMethod.POST)
+	public BasicResult codoonUploadData(@PathVariable("device_id") int deviceId,
+			@RequestParam(value = "user_id", defaultValue = "-1") String gdUserId,
+			@RequestParam(value = "catalog", defaultValue = "-1") String catalog,
+			@RequestParam(value = "resource_id", defaultValue = "-1") String resourceId,
+			@RequestParam(value = "start_time", defaultValue = "-1") String startTime,
+			@RequestParam(value = "end_time", defaultValue = "-1") String endTime) {
+
+		this.logger.debug("----------------接受咕咚上传数据接口start---------------------");
+		this.logger.debug("user_id={}", new Object[] { gdUserId });
+		this.logger.debug("catalog={}", new Object[] { catalog });
+		this.logger.debug("resource_id={}", new Object[] { resourceId });
+		this.logger.debug("start_time={}", new Object[] { startTime });
+		this.logger.debug("end_time={}", new Object[] { endTime });
+		this.logger.debug("----------------接受咕咚上传数据接口end---------------------");
+
+		DeviceGudongBean deviceGudongBean = new DeviceGudongBean();
+		deviceGudongBean.setDeviceId(deviceId);
+		deviceGudongBean.setGdUserId(gdUserId);
+		deviceGudongBean.setCatalog(catalog);
+		deviceGudongBean.setResourceId(resourceId);
+		deviceGudongBean.setStartTime(startTime);
+		deviceGudongBean.setEndTime(endTime);
+		deviceGudongBean.setUploadDate((int) DeviceUtil.formatNowtime("yyyyMMdd"));
+		try {
+			deviceService.saveGudongUpload(deviceGudongBean);
+		} catch (DeviceException e) {
+			logger.error("咕咚调用上传接口保存数据失败", e);
+			return new BasicResult(700704, "咕咚调用上传接口保存数据失败");
+		}
+		JSONObject routeJson = null;
+		try {
+			routeJson = deviceService.getGudongRoute(gdUserId, deviceId, resourceId);
+			routeJson.put("device_id", deviceId);
+			routeJson.put("resource_id", resourceId);
+			routeJson.put("gd_user_id", gdUserId);
+			deviceService.saveGudongRoute(routeJson);
+		} catch (Exception e) {
+			logger.error("获取用户上传路线接口异常=", e);
+			return new BasicResult(700703, "调用咕咚接口获取用户上传线路出错");
+		}
+		return null;
+	}
+
+	/**
+	 * 解绑
+	 * 
+	 * @param userId
+	 * @param taskId
+	 * @return
+	 */
+	@RequestMapping(value = "/device/unbind/", method = RequestMethod.POST)
+	public BasicResult unbind(@RequestParam(value = "device_id", defaultValue = "-1") int deviceId,
+			@RequestParam(value = "token", defaultValue = "-1") String token) {
+		try {
+			long userId = UserCache.getUserCache().getUserId(token);
+			// userId = 114000000022117411l;
+			if (deviceId == DeviceConstants.KANGWEI_BLOODSUGAR) {
+				String sn = deviceService.getDeviceUserId(deviceId, userId);
+				IDeviceMaker deviceMaker = new DeviceMakerImpl();
+				IDevice deviceServer = deviceMaker.makeDevice(deviceId);
+				deviceServer.snDeviceUnbind(userId, deviceId, sn, "-1");
+			}
+			deviceService.deleteDeviceBind(userId, deviceId);
+			return new BasicResult(0);
+		} catch (Exception e) {
+			logger.error("解绑异常", e);
+			return new BasicResult(490203, "解绑失败");
+		}
+	}
+
+	@RequestMapping(value = "/device/bind/", method = RequestMethod.GET)
+	public BasicResult bindRelation(@RequestParam(value = "token") String token,
+			@RequestParam(value = "device_id") int deviceId) {
+		BasicResult result = null;
+		try {
+			long userId = UserCache.getUserCache().getUserId(token);
+			JSONObject jsonObject = deviceService.getDeviceRelation(userId, deviceId);
+			result = new JsonObjectResult(0, jsonObject);
+		} catch (Exception e) {
+			logger.error("查询设备绑定关系出错", e);
+			result = new BasicResult(500101);
+		}
+		return result;
+	}
+}

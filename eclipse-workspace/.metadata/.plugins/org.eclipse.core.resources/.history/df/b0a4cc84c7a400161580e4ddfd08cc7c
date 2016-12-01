@@ -1,0 +1,243 @@
+
+package com.rocedar.device.data.impl;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.commons.codec.binary.Base64;
+import org.apache.http.NameValuePair;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import com.rocedar.device.bean.DeviceBean;
+import com.rocedar.device.bean.DeviceTokenBean;
+import com.rocedar.device.bean.DeviceUrlBean;
+import com.rocedar.device.data.IDevice;
+import com.rocedar.device.exception.DeviceException;
+import com.rocedar.device.service.DeviceService;
+import com.rocedar.device.util.ApplicationContextUtil;
+import com.rocedar.device.util.DeviceConstants;
+import com.rocedar.device.util.DeviceUtil;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+/**
+ * Heha手环
+ * 
+ * @author zcy
+ */
+public class DeviceHehaImpl implements IDevice {
+
+	private Logger logger = LogManager.getLogger(DeviceHehaImpl.class);
+
+	private DeviceService deviceService = (DeviceService) ApplicationContextUtil.getContext().getBean("deviceService");
+
+	@Override
+	public DeviceTokenBean getAccessTokenFromCode(int deviceId, long userId, String code) throws DeviceException {
+		String logDesc = "Heha获取token接口";
+		DeviceBean device = deviceService.getDevice(userId, deviceId);
+		JSONObject tokenParams = JSONObject.fromObject(device.getDeviceTokenParams());
+		JSONObject resultJson = null;
+		try {
+			// List<NameValuePair> params = new ArrayList<NameValuePair>();
+			// params.add(new BasicNameValuePair("grant_type", tokenParams.getString("grant_type")));
+			// params.add(new BasicNameValuePair("client_id", tokenParams.getString("client_id")));
+			// params.add(new BasicNameValuePair("redirect_uri", tokenParams.getString("redirect_url")));
+			// params.add(new BasicNameValuePair("code", code));
+			Map<String, String> headerMap = new HashMap<String, String>();
+			headerMap.put("authorization", "Basic " + Base64.encodeBase64String(
+					(tokenParams.getString("client_id") + ":" + tokenParams.getString("client_secret")).getBytes()));
+			headerMap.put("content-type", tokenParams.getString("content-type"));
+			headerMap.put("cache-control", tokenParams.getString("cache-control"));
+			JSONObject entityJson = new JSONObject();
+			entityJson.put("grant_type", tokenParams.getString("grant_type"));
+			entityJson.put("code", code);
+			resultJson = JSONObject.fromObject(
+					DeviceUtil.httpPost(device.getDeviceTokenUrl(), null, headerMap, entityJson.toString()));
+			logger.debug(logDesc + "返回结果=" + resultJson.toString());
+			if (resultJson.has("access_token")) {
+				DeviceTokenBean deviceToken = new DeviceTokenBean();
+				deviceToken.setUserId(userId);
+				deviceToken.setDeviceId(deviceId);
+				deviceToken.setAccessToken(resultJson.getString("access_token"));
+				deviceToken.setRefreshToken(resultJson.getString("refresh_token"));
+				deviceToken.setExpireTime(DeviceUtil.getExpireTime(resultJson.getInt("expires_in")));
+				deviceToken.setDeviceUserId(resultJson.getString("uid"));
+				return deviceToken;
+			} else {
+				logger.error(logDesc + "返回错误信息:{}, url={}, header={}, entity={}", resultJson.toString(),device.getDeviceTokenUrl(),
+						headerMap.toString(), entityJson.toString());
+				throw new DeviceException(701701);
+			}
+		} catch (Exception e) {
+			logger.error(logDesc + "异常=" + e);
+			throw new DeviceException(700201);
+		}
+	}
+
+	public void refreshToken(int deviceId, long userId) throws DeviceException {
+		String logDesc = "fitbit刷新token";
+		DeviceBean device = deviceService.getDevice(userId, deviceId);
+		JSONObject deviceParams = JSONObject.fromObject(device.getDeviceTokenParams());
+		JSONObject resultJson = null;
+
+		List<NameValuePair> params = new ArrayList<NameValuePair>();
+		params.add(new BasicNameValuePair("grant_type", deviceParams.getString("grant_type_refresh_token")));
+		params.add(new BasicNameValuePair("refresh_token", device.getRefreshToken()));
+		Map<String, String> headerMap = new HashMap<String, String>();
+		headerMap.put("Authorization", deviceParams.getString("Authorization"));
+		headerMap.put("Content-Type", deviceParams.getString("Content-Type"));
+		try {
+			String response = DeviceUtil.httpPost(device.getDeviceTokenUrl(), params, headerMap, null);
+			logger.debug(logDesc + "返回结果=" + response);
+			resultJson = JSONObject.fromObject(response);
+			if (resultJson.has("errors")) {
+				if (response.contains("Refresh token invalid")) {
+					logger.debug("refresh token过期，需要重新登录");
+					throw new DeviceException(490207);
+				}
+				logger.error(logDesc + "错误=" + resultJson.toString());
+				throw new DeviceException(700203);
+			}
+			DeviceTokenBean deviceToken = new DeviceTokenBean();
+			deviceToken.setUserId(userId);
+			deviceToken.setDeviceId(deviceId);
+			deviceToken.setAccessToken(resultJson.getString("access_token"));
+			deviceToken.setRefreshToken(resultJson.getString("refresh_token"));
+			deviceToken.setExpireTime(DeviceUtil.getExpireTime(resultJson.getInt("expires_in")));
+			deviceService.refreshToken(deviceToken);
+		} catch (DeviceException e) {
+			logger.error(logDesc + "异常=" + e);
+			throw new DeviceException(e.getErrorCode());
+		} catch (Exception e) {
+			logger.error(logDesc + "异常=" + e);
+			throw new DeviceException(700203);
+		}
+	}
+
+	/**
+	 * 调用设备接口获取数据
+	 *
+	 * @param mqJson
+	 * @return
+	 * @throws DeviceException
+	 */
+	private JSONArray getDevicData(JSONObject mqJson) throws DeviceException {
+		String logDesc = "fitbit获取数据接口";
+		long userId = mqJson.getLong("userId");
+		int deviceId = mqJson.getInt("deviceId");
+		int targetTypeId = mqJson.getInt("targetTypeId");
+		String startDate = mqJson.getString("startDate");
+		String endDate = mqJson.getString("endDate");
+		try {
+			DeviceUrlBean deviceUrl = deviceService.selectDeviceUrl(userId, deviceId, targetTypeId);
+			// 判断token是否已经过期
+			long nowTime = DeviceUtil.formatNowtime("yyyyMMddHHmmss") + 600;
+			if (nowTime > deviceUrl.getExpireTime()) {
+				logger.debug("token已过期，刷新token");
+				refreshToken(deviceId, userId);
+				deviceUrl = deviceService.selectDeviceUrl(userId, deviceId, targetTypeId);
+			}
+			Map<String, String> headerMap = new HashMap<String, String>();
+			headerMap.put("Authorization", "Bearer " + deviceUrl.getAccessToken());
+			String url = deviceUrl.getDeviceServerUrl();
+			startDate = startDate.substring(0, 4) + "-" + startDate.substring(4, 6) + "-" + startDate.substring(6, 8);
+			endDate = endDate.substring(0, 4) + "-" + endDate.substring(4, 6) + "-" + endDate.substring(6, 8);
+			url = url + startDate + "/" + endDate + ".json";
+			String reponseString = DeviceUtil.httpGet(url, null, headerMap);
+			logger.debug(logDesc + "返回结果=" + reponseString);
+			if (reponseString == null || "".equals(reponseString) || "[]".equals(reponseString)) {
+				logger.error(logDesc + "返回数据为空={}", reponseString);
+				throw new DeviceException(700202);
+			}
+			JSONObject fitbitResultJson = JSONObject.fromObject(reponseString);
+			if (fitbitResultJson.has("errors")) {
+				logger.error(logDesc + "接口调用出错={}", fitbitResultJson.toString());
+				throw new DeviceException(700202);
+			}
+			if (fitbitResultJson.has("activities-steps")) { // 步数
+				JSONArray tempArray = fitbitResultJson.getJSONArray("activities-steps");
+				return tempArray;
+			} else if (fitbitResultJson.has("sleep-minutesAsleep")) { // 睡眠数据
+				JSONArray tempArray = fitbitResultJson.getJSONArray("sleep-minutesAsleep");
+				return tempArray;
+			} else {
+				logger.error(logDesc + "未知错误={}", fitbitResultJson.toString());
+				throw new DeviceException(700202);
+			}
+		} catch (DeviceException e) {
+			logger.error(logDesc + "异常", e);
+			throw new DeviceException(e.getErrorCode());
+		} catch (Exception e) {
+			logger.error(logDesc + "异常", e);
+			throw new DeviceException(700202);
+		}
+	}
+
+	@Override
+	public JSONArray getRemoteData(JSONObject mqJson) throws DeviceException {
+		JSONArray resultArray = getDevicData(mqJson);
+		switch (mqJson.getInt("targetTypeId")) {
+		case DeviceConstants.STEPS:
+			resultArray = DeviceUtil.fromatDeviceResultJson(resultArray, mqJson, "value", "dateTime");
+			break;
+		case DeviceConstants.SLEEP:
+			resultArray = DeviceUtil.fromatDeviceResultJson(resultArray, mqJson, "value", "dateTime");
+			break;
+		}
+		return resultArray;
+	}
+
+	/**
+	 * fitbit取用户id
+	 *
+	 * @param userId
+	 * @param deviceId
+	 * @param token
+	 * @return
+	 * @throws Exception
+	 */
+	private String getFitbitUserId(long userId, int deviceId, String token) throws Exception {
+		String logDesc = "调用fitbit获取用户信息接口";
+		DeviceUrlBean deviceUrl = deviceService.selectDeviceUrl(userId, deviceId, DeviceConstants.GET_DEVICE_USER_INFO);
+		Map<String, String> headerMap = new HashMap<String, String>();
+		headerMap.put("Authorization", "Bearer " + token);
+		String url = deviceUrl.getDeviceServerUrl();
+		String reponseString = DeviceUtil.httpGet(url, null, headerMap);
+		logger.debug(logDesc + "返回结果=" + reponseString);
+		if (reponseString == null || "".equals(reponseString) || "[]".equals(reponseString)) {
+			logger.error(logDesc + "返回数据为空={}", reponseString);
+			throw new DeviceException(700201);
+		}
+		JSONObject fitbitResultJson = JSONObject.fromObject(reponseString);
+		if (fitbitResultJson.has("errors")) {
+			logger.error(logDesc + "接口调用出错={}", fitbitResultJson.toString());
+			throw new DeviceException(700201);
+		}
+		if (fitbitResultJson.has("user")) { // 步数
+			JSONObject userJson = fitbitResultJson.getJSONObject("user");
+			return userJson.getString("encodedId");
+		} else {
+			logger.error(logDesc + "返回错误={}", fitbitResultJson.toString());
+			throw new DeviceException(700201);
+		}
+	}
+
+	@Override
+	public String getOauthCode(int deviceId, long userId) throws DeviceException {
+		return null;
+	}
+
+	@Override
+	public DeviceTokenBean snDeviceBind(long userId, int deviceId, String sn) throws DeviceException {
+		return null;
+	}
+
+	@Override
+	public void snDeviceUnbind(long userId, int deviceId, String sn) throws DeviceException {
+	}
+}

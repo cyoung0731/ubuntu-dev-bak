@@ -1,0 +1,29 @@
+/**
+ * CopyRight (c) 2016 北京瑰柏科技有限公司 保留所有权利
+ */
+
+package com.huanyi.device.bean;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+/**
+ * @author zcy
+ * @version 1.0.0.2016年11月28日
+ */
+@Component("deviceConfigInfo")
+public class DeviceConfigInfoBean {
+
+	// 接收体检报告分发服务器地址
+	@Value("${domain.distribute}")
+	private int domainDistribute;
+
+	// 动吖服务器地址
+	@Value("${domain.dongya}")
+	private int domainDongya;
+
+	// 方舟服务器地址
+	@Value("${domain.fangzhou}")
+	private int domainDistribute;
+
+}

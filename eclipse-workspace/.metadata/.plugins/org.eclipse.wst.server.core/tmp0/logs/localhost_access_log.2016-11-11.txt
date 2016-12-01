@@ -1,0 +1,9 @@
+127.0.0.1 - - [11/Nov/2016:11:00:37 +0800] "GET / HTTP/1.1" 404 994
+127.0.0.1 - - [11/Nov/2016:11:01:05 +0800] "GET /haha HTTP/1.1" 302 -
+127.0.0.1 - - [11/Nov/2016:11:01:05 +0800] "GET /haha/ HTTP/1.1" 200 2183
+127.0.0.1 - - [11/Nov/2016:11:01:06 +0800] "GET /favicon.ico HTTP/1.1" 404 1016
+127.0.0.1 - - [11/Nov/2016:11:01:09 +0800] "GET /haha/page/test/fangzhou_aio_shuangjia.html HTTP/1.1" 200 2659
+127.0.0.1 - - [11/Nov/2016:11:01:09 +0800] "GET /haha/static/js/jquery-1.12.4.min.js HTTP/1.1" 200 97163
+127.0.0.1 - - [11/Nov/2016:11:01:09 +0800] "GET /haha/page/test/fangzhou_aio_shuangjia.js HTTP/1.1" 200 1918
+127.0.0.1 - - [11/Nov/2016:11:01:09 +0800] "GET /haha/static/js/common/common.js HTTP/1.1" 200 2477
+127.0.0.1 - - [11/Nov/2016:11:01:16 +0800] "GET /haha/fangzhou/aio/shuangjia/upload/?token=dbbcf39d5541af01b7223ae69233631d&phone=18611286597&id=220702198610010091&time=20161111110109&bmi=19.8&hp=198&lp=19.8&xl=19 HTTP/1.1" 200 -

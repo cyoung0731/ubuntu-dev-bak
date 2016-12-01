@@ -1,0 +1,33 @@
+/**
+ * http://usejsdoc.org/
+ */
+$(document).ready(
+        function() {
+            $("#bindBtn").click(
+                    function() {
+                        bind();
+                    });
+        });
+
+function bindBtn(){
+
+    var token = $("#token").val().trim();
+    var code = $("#code").val().trim();
+    var device_id = 1217001;
+    var bind_type = 1;
+    var url = dyhttpaddr+"/device/bind/";
+    var paramstr = "token="+token+"&code="+code+"&device_id="+device_id+"&bind_type="+bind_type;
+alert(paramstr)
+    $.ajax({
+        url : rootpath + "/test/rest/",
+        type : "POST",
+        dataType : "json",
+        data : {
+            url : url,
+            type : "post",
+            params : paramstr
+        },
+        success : function(data) {
+        }
+    });
+}

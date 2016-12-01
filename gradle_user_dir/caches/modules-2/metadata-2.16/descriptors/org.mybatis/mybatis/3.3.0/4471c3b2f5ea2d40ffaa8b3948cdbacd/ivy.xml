@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ivy-module version="2.0" xmlns:m="http://ant.apache.org/ivy/maven">
+  <info organisation="org.mybatis" module="mybatis" revision="3.3.0" status="release" publication="20161024160752">
+    <description homepage="http://www.mybatis.org/core/">The MyBatis data mapper framework makes it easier to use a relational database with object-oriented
+    applications. MyBatis couples objects with stored procedures or SQL statements using a XML descriptor or
+    annotations. Simplicity is the biggest advantage of the MyBatis data mapper over object relational mapping
+    tools.</description>
+  </info>
+  <configurations>
+    <conf name="default" visibility="public" description="runtime dependencies and master artifact can be used with this conf" extends="runtime,master"/>
+    <conf name="master" visibility="public" description="contains only the artifact published by this module itself, with no transitive dependencies"/>
+    <conf name="compile" visibility="public" description="this is the default scope, used if none is specified. Compile dependencies are available in all classpaths."/>
+    <conf name="provided" visibility="public" description="this is much like compile, but indicates you expect the JDK or a container to provide it. It is only available on the compilation classpath, and is not transitive."/>
+    <conf name="runtime" visibility="public" description="this scope indicates that the dependency is not required for compilation, but is for execution. It is in the runtime and test classpaths, but not the compile classpath." extends="compile"/>
+    <conf name="test" visibility="private" description="this scope indicates that the dependency is not required for normal use of the application, and is only available for the test compilation and execution phases." extends="runtime"/>
+    <conf name="system" visibility="public" description="this scope is similar to provided except that you have to provide the JAR which contains it explicitly. The artifact is always available and is not looked up in a repository."/>
+    <conf name="sources" visibility="public" description="this configuration contains the source artifact of this module, if any."/>
+    <conf name="javadoc" visibility="public" description="this configuration contains the javadoc artifact of this module, if any."/>
+    <conf name="optional" visibility="public" description="contains all optional dependencies"/>
+  </configurations>
+  <publications/>
+  <dependencies>
+    <dependency org="ognl" name="ognl" rev="3.0.11" force="true" conf="optional-&gt;compile(*),provided(*),runtime(*),master(*)">
+      <exclude org="javassist" module="javassist" name="*" type="*" ext="*" conf="" matcher="exact"/>
+    </dependency>
+    <dependency org="org.javassist" name="javassist" rev="3.18.2-GA" force="true" conf="optional-&gt;compile(*),provided(*),runtime(*),master(*)"/>
+    <dependency org="org.slf4j" name="slf4j-api" rev="1.7.12" force="true" conf="optional-&gt;compile(*),master(*)"/>
+    <dependency org="org.slf4j" name="slf4j-log4j12" rev="1.7.12" force="true" conf="optional-&gt;compile(*),master(*)"/>
+    <dependency org="log4j" name="log4j" rev="1.2.17" force="true" conf="optional-&gt;compile(*),master(*)"/>
+    <dependency org="org.apache.logging.log4j" name="log4j-core" rev="2.2" force="true" conf="optional-&gt;compile(*),master(*)"/>
+    <dependency org="commons-logging" name="commons-logging" rev="1.2" force="true" conf="optional-&gt;compile(*),master(*)"/>
+    <dependency org="cglib" name="cglib" rev="3.1" force="true" conf="optional-&gt;compile(*),master(*)"/>
+    <dependency org="junit" name="junit" rev="4.12" force="true" conf="test-&gt;runtime(*),master(*)"/>
+    <dependency org="org.hsqldb" name="hsqldb" rev="2.3.2" force="true" conf="test-&gt;runtime(*),master(*)"/>
+    <dependency org="org.apache.derby" name="derby" rev="10.11.1.1" force="true" conf="test-&gt;runtime(*),master(*)"/>
+    <dependency org="org.mockito" name="mockito-core" rev="1.10.19" force="true" conf="test-&gt;runtime(*),master(*)"/>
+    <dependency org="commons-dbcp" name="commons-dbcp" rev="1.4" force="true" conf="test-&gt;runtime(*),master(*)"/>
+    <dependency org="javax.transaction" name="transaction-api" rev="1.1" force="true" conf="test-&gt;runtime(*),master(*)"/>
+    <dependency org="org.apache.velocity" name="velocity" rev="1.7" force="true" conf="test-&gt;runtime(*),master(*)"/>
+    <dependency org="postgresql" name="postgresql" rev="9.1-901-1.jdbc4" force="true" conf="test-&gt;runtime(*),master(*)"/>
+  </dependencies>
+</ivy-module>

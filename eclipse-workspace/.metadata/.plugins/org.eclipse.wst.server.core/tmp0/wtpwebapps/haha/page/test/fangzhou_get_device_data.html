@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>test</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta http-equiv="Content-type" name="viewport" content="initial-scale=1.0, maximum-scale=1.0, user-scalable=no, width=device-width">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimum-scale=1.0, maximum-scale=1.0">
+    <meta content="application/xhtml+xml;charset=UTF-8" http-equiv="Content-Type">
+    <meta content="no-cache,must-revalidate" http-equiv="Cache-Control">
+    <meta content="no-cache" http-equiv="pragma">
+    <meta content="0" http-equiv="expires">
+    <meta content="telephone=no, address=no" name="format-detection">
+    <meta name="apple-mobile-web-app-capable" content="yes" /> <!-- apple devices fullscreen -->
+</head>
+<body>
+
+
+<div>
+    <p><a href="/haha/index.html">返回首页</a></p>
+</div>
+
+<div>获取设备数据</div>
+<div>
+    <p>
+        <span>phone</span>
+        <input id="phone" type="text" placeholder=""   value="18201477263" />
+        <a id="getUserIdBtn" href="javascript:void(0)">获取userId</a>
+        <br>
+        <span>userId</span>
+        <input id="userId" type="text" size="40" placeholder=""   value="114575065034750014" />
+        <br>
+        <span>deviceId</span>
+        <input id="deviceId" type="text" placeholder=""   value="1202001" />
+        <br>
+        <span>indicatorId</span>
+        <input id="indicatorId" type="text" placeholder=""   value="4000" />
+        <br>
+        <span>startDate</span>
+        <input id="startDate" type="text" placeholder=""   value="" />
+        <br>
+        <span>endDate</span>
+        <input id="endDate" type="text" placeholder=""   value="" />
+        <br>
+        <span>token</span>
+        <input id="token" type="text" placeholder=""   value="5c7cfb3455fbf6857a94c1530833a41f" />
+    </p>
+    <p><a id="getDeviceDataBtn" href="javascript:void(0)">获取设备数据</a></p>
+    <p><a id="getDongyaDeviceDataByUserTaskBtn" href="javascript:void(0)">调用动吖所有用户,任务相关设备数据接口</a></p>
+    <p><a id="getUsingDeviceDataBtn" href="javascript:void(0)">查询用户所有使用中的设备数据-参数token</a></p>
+    <p><a id="setIndicatorDeviceBtn" href="javascript:void(0)">设置用户设备开启使用</a></p>
+    <p><a id="setIndicatorDeviceDeleteBtn" href="javascript:void(0)">设置用户设备停止使用</a></p>
+</div>
+<div><textarea rows="10" cols="100" id="getDevicesDataDiv"></textarea></div>
+<div id="deivcesTable"></div>
+
+</body>
+<script type="application/javascript" src="/haha/static/js/jquery-1.12.4.min.js"></script>
+<script type="application/javascript" src="/haha/static/js/common/common.js"></script>
+<script type="application/javascript" src="fangzhou_get_device_data.js"></script>
+</html>

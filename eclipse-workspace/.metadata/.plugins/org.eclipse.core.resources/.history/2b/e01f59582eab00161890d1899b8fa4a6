@@ -1,0 +1,64 @@
+
+package com.rocedar.device.data.impl;
+
+import com.rocedar.device.data.IDevice;
+import com.rocedar.device.data.IDeviceMaker;
+import com.rocedar.device.util.DeviceConstants;
+
+public class DeviceMakerImpl implements IDeviceMaker {
+
+    // @Override
+    // public IDevice makeDevice() {
+    //
+    // IDevice device = new DeviceImpl();
+    //
+    // return device;
+    // }
+    @Override
+    public IDevice makeDevice(int deviceId) {
+        IDevice device = null;
+        switch (deviceId) {
+        case DeviceConstants.FITBIT_BAND:
+            device = new DeviceFitbitImpl();
+            break;
+        case DeviceConstants.XIAOMI_BAND:
+            device = new DeviceXiaomiImpl();
+            break;
+        case DeviceConstants.LEXIN_BAND:
+            device = new DeviceLexinImpl();
+            break;
+        case DeviceConstants.YUEDONGQUAN_APP:
+            device = new DeviceYuedongquanImpl();
+            break;
+        case DeviceConstants.GUDONG_APP:
+            device = new DeviceGudongImpl();
+            break;
+        case DeviceConstants.JAWBONE_APP:
+            device = new DeviceJawboneImpl();
+            break;
+        case DeviceConstants.MOJIKE_ANDROID:
+            device = new DeviceMojikeImpl();
+            break;
+        case DeviceConstants.MOJIKE_IOS:
+            device = new DeviceMojikeImpl();
+            break;
+        case DeviceConstants.YUANDU_BAND_ANDROID:
+            device = new DeviceYuanduImpl();
+            break;
+        case DeviceConstants.YUANDU_BAND_IOS:
+        	device = new DeviceYuanduImpl();
+        	break;
+	    case DeviceConstants.KANGWEI_BLOODSUGAR:
+	    	device = new DeviceKangweiBloodSugarImpl();
+	    	break;
+	    case DeviceConstants.HEHA_APP:
+	    	device = new DeviceHehaImpl();
+	    	break;
+	    case DeviceConstants.HEHA_APP:
+	    	device = new DeviceHehaImpl();
+	    	break;
+	    }
+        return device;
+    }
+
+}

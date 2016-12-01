@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<qualifiedTypeNameHistroy>
+<fullyQualifiedTypeName name="java.lang.Integer"/>
+<fullyQualifiedTypeName name="com.fasterxml.jackson.databind.jsonFormatVisitors.JsonObjectFormatVisitor"/>
+<fullyQualifiedTypeName name="com.rocedar.common.utils.StringUtil"/>
+<fullyQualifiedTypeName name="com.rocedar.common.utils.MessageUtils"/>
+<fullyQualifiedTypeName name="com.rocedar.device.util.DeviceUtil"/>
+<fullyQualifiedTypeName name="com.rocedar.device.data.impl.DeviceDnurseImpl"/>
+<fullyQualifiedTypeName name="java.net.URLEncoder"/>
+<fullyQualifiedTypeName name="com.rocedar.device.util.DeviceConstants"/>
+<fullyQualifiedTypeName name="java.util.List"/>
+<fullyQualifiedTypeName name="org.apache.http.NameValuePair"/>
+<fullyQualifiedTypeName name="com.sun.javafx.collections.MappingChange.Map"/>
+<fullyQualifiedTypeName name="com.cy.util.CyUtil"/>
+<fullyQualifiedTypeName name="java.util.Map"/>
+<fullyQualifiedTypeName name="com.huanyi.device.bean.DeviceConfigInfoBean"/>
+<fullyQualifiedTypeName name="net.sf.json.JSONObject"/>
+<fullyQualifiedTypeName name="com.rocedar.common.result.JsonArrayResult"/>
+<fullyQualifiedTypeName name="com.rocedar.common.result.BasicResult"/>
+<fullyQualifiedTypeName name="com.rocedar.cache.UserCache"/>
+<fullyQualifiedTypeName name="com.cy.test.exception.FileException"/>
+<fullyQualifiedTypeName name="com.cy.test.exception.RedisException"/>
+<fullyQualifiedTypeName name="com.cy.util.StringUtil"/>
+<fullyQualifiedTypeName name="com.cy.test.exception.CacheException"/>
+</qualifiedTypeNameHistroy>

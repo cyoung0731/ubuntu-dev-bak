@@ -1,0 +1,46 @@
+# database config
+jdbc.url=jdbc:mysql://192.168.18.21:3306/doit?useUnicode=true&characterEncoding=utf8&autoReconnect=true&rewriteBatchedStatements=true
+jdbc.username=dongya
+jdbc.password=dongya
+
+# rabbitmq config
+rabbitmq.host=192.168.18.24
+rabbitmq.port=5672
+rabbitmq.username=doit
+rabbitmq.password=do2016it
+rabbitmq.virtualhost=/
+rabbitmq.channelcachesize=5
+
+# task rabbit queue
+rabbitmq.queue.task.device=doit.queue.task.device
+rabbitmq.exchange.task.device=doit.exchange.task.device
+rabbitmq.routing.task.device=doit.routing.task.device
+
+# device data rabbit queue
+rabbitmq.queue.device.data=doit.queue.device.data
+rabbitmq.exchange.device.data=doit.exchange.device.data
+rabbitmq.routing.device.data=doit.routing.device.data
+
+# indicator data rabbit queue
+rabbitmq.queue.indicator.data=doit.queue.indicator.data
+rabbitmq.exchange.indicator.data=doit.exchange.indicator.data
+rabbitmq.routing.indicator.data=doit.routing.indicator.data
+
+# email rabbit queue
+rabbitmq.queue.email=doit.queue.email
+rabbitmq.exchange.email=doit.exchange.email
+rabbitmq.routing.email=doit.routing.email
+
+# vhs phone service
+rabbitmq.queue.server.rpc=doit.queue.server.rpc
+rabbitmq.exchange.server.rpc=doit.exchange.server.rpc
+rabbitmq.routing.server.rpc=doit.routing.server.rpc
+
+# distribute addr
+domain.distribute=http://dongya.rocedar.com/rest/3.0
+domain.dongya=http://dongya.rocedar.com/rest/3.0
+domain.fangzhou=http://10.174.9.48
+
+aio.data.logfile.hufeng=/home/zcy/temp/hf_upload.log
+aio.data.logfile.beitai=/home/zcy/temp/bt_upload.log
+aio.data.logfile.shuangjia=/home/zcy/temp/sj_upload.log

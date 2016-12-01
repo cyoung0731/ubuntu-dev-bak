@@ -1,0 +1,740 @@
+
+package com.huanyi.device.service.impl;
+
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.amqp.core.AmqpTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.huanyi.cache.UserCache;
+import com.huanyi.common.exception.DBException;
+import com.huanyi.common.utils.DateUtil;
+import com.huanyi.common.utils.HealthUtil;
+import com.huanyi.common.utils.StringUtil;
+import com.huanyi.device.bean.DeviceBean;
+import com.huanyi.device.bean.DeviceGudongBean;
+import com.huanyi.device.bean.DeviceGudongRouteBean;
+import com.huanyi.device.bean.DeviceMqBean;
+import com.huanyi.device.bean.DeviceResultData;
+import com.huanyi.device.bean.DeviceTokenBean;
+import com.huanyi.device.bean.DeviceUrlBean;
+import com.huanyi.device.dao.DeviceMapper;
+import com.huanyi.device.exception.DeviceException;
+import com.huanyi.device.service.DeviceService;
+import com.huanyi.device.util.DeviceUtil;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+@Service("deviceService")
+public class DeviceServiceImpl implements DeviceService {
+
+	@Autowired
+	public DeviceMapper deviceMapper;
+
+	@Autowired
+	private AmqpTemplate indicatorDeviceMQTemplate;
+
+	private Logger logger = LogManager.getLogger(DeviceServiceImpl.class);
+
+	@Override
+	public DeviceBean getDevice(long userId, int deviceId) throws DeviceException {
+
+		DeviceBean device = null;
+
+		try {
+			logger.trace("获取单个设备信息：" + deviceId);
+			device = deviceMapper.selectDevice(userId, deviceId);
+		} catch (Exception e) {
+			logger.error("获取单个设备信息异常", e);
+			throw new DeviceException(500201);
+		}
+
+		return device;
+	}
+
+	@Override
+	public boolean ifDeviceBind(long userId, int deviceId) throws DeviceException {
+		try {
+			if (deviceMapper.selectIfBind(userId, deviceId) > 0) {
+				return true;
+			} else {
+				return false;
+			}
+		} catch (Exception e) {
+			logger.error("判断用户设备是否已经绑定出错" + e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	@Override
+	public DeviceUrlBean selectDeviceUrl(long userId, int deviceId, int indicatorId) throws DeviceException {
+		DeviceUrlBean deviceUrl = null;
+		try {
+			deviceUrl = deviceMapper.selectDeviceUrl(userId, deviceId, indicatorId);
+		} catch (Exception e) {
+			logger.error("查询接口调用url异常", e);
+			throw new DeviceException(500201);
+		}
+		return deviceUrl;
+	}
+
+	@Override
+	public void reLogin(DeviceTokenBean deviceToken) throws DeviceException {
+		long userId = deviceToken.getUserId();
+		int deviceId = deviceToken.getDeviceId();
+		String deviceUserId = deviceToken.getDeviceUserId();
+		if (ifDeviceUserBind(deviceId, deviceUserId, userId)) {
+			logger.error("设备账户已被其他健康立方账户绑定");
+			throw new DeviceException(490202, "设备账户已被其他健康立方账户绑定");
+		}
+		updateUserDevice(userId, deviceId, deviceUserId);
+		refreshToken(deviceToken);
+	}
+
+	@Override
+	public void bind(DeviceTokenBean deviceToken) throws DeviceException {
+		long userId = deviceToken.getUserId();
+		int deviceId = deviceToken.getDeviceId();
+		String deviceUserId = deviceToken.getDeviceUserId();
+		if (ifDeviceUserBind(deviceId, deviceUserId, userId)) {
+			logger.error("设备账户已被其他健康立方账户绑定");
+			throw new DeviceException(490202, "设备账户已被其他健康立方账户绑定");
+		}
+
+		if (ifhasToken(userId, deviceId)) {
+			refreshToken(deviceToken);
+		} else {
+			saveAccessToken(deviceToken);
+		}
+		saveUserDevice(deviceToken);
+
+		// 查询设备支持指标中,哪些指标没有用户已绑定的设备开启的指标,这些指标默认开启此设备的启用状态
+		List<Integer> initIndicatorList = getDeviceBindInitIndicator(userId, deviceId);
+		if (initIndicatorList != null && initIndicatorList.size() > 0) {
+			for (int i = 0; i < initIndicatorList.size(); i++) {
+				deviceMapper.insertUserIndicatorDevice(userId, initIndicatorList.get(i), deviceId, 2);
+			}
+		}
+	}
+
+	@Override
+	public void refreshToken(DeviceTokenBean deviceToken) throws DeviceException {
+		try {
+			deviceMapper.updateAccessToken(deviceToken);
+		} catch (Exception e) {
+			logger.error("刷新token出错", e);
+			throw new DeviceException(520201);
+		}
+	}
+
+	@Override
+	public void unbind(int deviceId, long userId) throws DeviceException {
+		deleteUserDevice(deviceId, userId);
+		deleteUserToken(deviceId, userId);
+		deleteUserIndicatorDevice(userId, -1, deviceId);
+	}
+
+	@Override
+	public List<DeviceResultData> getGudongData(long dyUserId, int startDate, int endDate, String targetType)
+			throws DeviceException {
+		try {
+			List<DeviceResultData> resultList = deviceMapper.selectGudongData(dyUserId, startDate, endDate, targetType);
+			return resultList;
+		} catch (Exception e) {
+			logger.error("查询咕咚接口数据出错", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	@Override
+	public JSONArray getDevicesWithStatus(long userId, int deviceStatus, int osType, String token, int appVersion)
+			throws DeviceException {
+		try{
+		List<DeviceBean> deviceList = deviceMapper.selectDevicesWithStatus(userId, deviceStatus, osType, appVersion);
+		if (deviceList == null) {
+			throw new DeviceException(490203, "获取设备列表失败");
+		}
+		JSONArray deviceJsonArray = new JSONArray();
+		for (DeviceBean deviceBean : deviceList) {
+			JSONObject deviceJson = new JSONObject();
+			deviceJson.put("device_id", deviceBean.getDeviceId());
+			deviceJson.put("device_name", deviceBean.getDeviceName());
+			deviceJson.put("device_logo", deviceBean.getDeviceLogo());
+			deviceJson.put("bind_type", deviceBean.getBindType());
+			deviceJson.put("param_name", deviceBean.getParamName());
+			if (deviceBean.getBindType() == 2) {
+				deviceJson.put("device_jump_url", addParams(deviceBean.getDeviceJumpUrl(), token));
+			} else if (deviceBean.getBindType() == 4 || deviceBean.getBindType() == 5) {
+				// TODO -zcy-蓝牙手串列表接口返回
+				// 蓝牙名显示名映射
+				// 蓝牙最低版本,协议
+				// {'protocol':'BLE','version':'4.0','device_name':'PE841','display_name':'缘渡手串'}
+				if (deviceBean.getExt()!= null){
+					JSONObject extJson = JSONObject.fromObject(deviceBean.getExt());
+					deviceJson.put("bluetooth", extJson);
+					deviceJson.put("device_jump_url", "");
+				}
+			} else {
+				deviceJson.put("device_jump_url", deviceBean.getDeviceJumpUrl());
+			}
+			deviceJson.put("redirect_url", deviceBean.getRedirectUrl());
+			deviceJson.put("status", deviceBean.getStatus());
+			deviceJsonArray.add(deviceJson);
+		}
+		return deviceJsonArray;
+		} catch (){
+			
+		}
+	}
+
+	@Override
+	public JSONArray getDevicesByIndicator(long userId, int Indicator, int osType, int deviceStatus, String token,
+			int appVersion) throws DeviceException {
+		List<DeviceBean> deviceList = deviceMapper.selectDevicesByIndicator(userId, Indicator, osType, deviceStatus,
+				appVersion);
+		if (deviceList == null) {
+			throw new DeviceException(490203, "获取设备列表失败");
+		}
+		JSONArray deviceJsonArray = new JSONArray();
+		for (DeviceBean deviceBean : deviceList) {
+			JSONObject deviceJson = new JSONObject();
+			deviceJson.put("device_id", deviceBean.getDeviceId());
+			deviceJson.put("device_name", deviceBean.getDeviceName());
+			deviceJson.put("device_logo", deviceBean.getDeviceLogo());
+			deviceJson.put("bind_type", deviceBean.getBindType());
+			deviceJson.put("param_name", deviceBean.getParamName());
+			if (deviceBean.getBindType() == 2) {
+				deviceJson.put("device_jump_url", addParams(deviceBean.getDeviceJumpUrl(), token));
+			} else if (deviceBean.getBindType() == 4 || deviceBean.getBindType() == 5) {
+				// TODO -zcy-蓝牙手串列表接口返回
+				// 蓝牙名显示名映射
+				// 蓝牙最低版本,协议
+				// {'protocol':'BLE','version':'4.0','device_name':'PE841','display_name':'缘渡手串'}
+				JSONObject extJson = JSONObject.fromObject(deviceBean.getExt());
+				deviceJson.put("bluetooth", extJson);
+				deviceJson.put("device_jump_url", "");
+			} else {
+				deviceJson.put("device_jump_url", deviceBean.getDeviceJumpUrl());
+			}
+			deviceJson.put("redirect_url", deviceBean.getRedirectUrl());
+			deviceJson.put("status", deviceBean.getStatus());
+			deviceJsonArray.add(deviceJson);
+		}
+		return deviceJsonArray;
+	}
+
+	@Override
+	public void updateUseIndicatorDevice(long userId, int indicatorId, int deviceId) throws DBException {
+		try {
+			deleteUserIndicatorDevice(userId, indicatorId, -1);
+			insertUserIndicatorDevice(userId, indicatorId, deviceId);
+		} catch (Exception e) {
+			logger.error("修改用户指标设备出错", e);
+			throw new DBException(530201);
+		}
+	}
+
+	@Override
+	public void deleteUseIndicatorDevice(long userId, int indicatorId, int deviceId) throws DBException {
+		try {
+			deleteUserIndicatorDevice(userId, indicatorId, deviceId);
+		} catch (Exception e) {
+			logger.error("删除用户指标设备出错", e);
+			throw new DBException(530201);
+		}
+	}
+
+	@Override
+	public JSONArray getAllUsingDeviceByUserId(long userId) throws DeviceException {
+		try {
+			List<DeviceMqBean> deviceList = deviceMapper.selectAllUsingDeviceByUserId(userId);
+			if (deviceList != null && deviceList.size() > 0) {
+				JSONArray deviceJsonArray = new JSONArray();
+				for (DeviceMqBean device : deviceList) {
+					JSONObject deviceJson = new JSONObject();
+					deviceJson.put("indicator_id", device.getIndicatorId());
+					deviceJson.put("device_id", device.getDeviceId());
+					deviceJsonArray.add(deviceJson);
+				}
+				return deviceJsonArray;
+			} else {
+				logger.debug("查询用户正在使用设备结果为空");
+				return null;
+			}
+		} catch (Exception e) {
+			logger.error("获取用户所有在用设备异常", e);
+			throw new DeviceException(500101);
+		}
+	}
+
+	@Override
+	public String getDeviceUserId(int deviceId, long userId) throws DeviceException {
+		try {
+			return deviceMapper.selectDeviceUserId(deviceId, userId);
+		} catch (Exception e) {
+			logger.error("查询绑定设备的device_user_id或sn异常", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	@Override
+	public String selectBindingDeviceUserId(int deviceId, String deviceUserId) throws DeviceException {
+		try {
+			return deviceMapper.selectBindingDeviceUserId(deviceId, deviceUserId);
+		} catch (Exception e) {
+			logger.error("查询绑定设备的方舟user_id异常", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	@Override
+	public void getUsingDeviceData(JSONObject userJson, int days) throws DeviceException {
+		try {
+			long userId = userJson.getLong("uid");
+			int companyId = userJson.getInt("cid");
+			logger.debug("查询用户所有在用设备");
+			List<DeviceMqBean> deviceMqList = deviceMapper.selectAllUsingDeviceByUserId(userId);
+			if (deviceMqList != null && deviceMqList.size() > 0) {
+				// 获取数据起始日期和终止日期
+				int startDate = DateUtil.getCurrentDate();
+				int endDate = startDate;
+				if (days > 1) {
+					startDate = DateUtil.getDateByDays(new Date(), -1 * (days - 1));
+				}
+				logger.debug("获取远程数据的日期：startDate: {}, endDate: {}", startDate, endDate);
+				for (DeviceMqBean deviceMqBean : deviceMqList) {
+					// 如果是手机，跳过
+					if (deviceMqBean.getDeviceId() == 1000000) {
+						continue;
+					}
+					deviceMqBean.setCompanyId(companyId);
+					deviceMqBean.setStartDate(startDate);
+					deviceMqBean.setEndDate(endDate);
+					logger.debug("发送获取远程数据请求：Bean: {}", deviceMqBean);
+					// 发送消息
+					indicatorDeviceMQTemplate.convertAndSend(deviceMqBean);
+				}
+			} else {
+				logger.debug("此用户没有正在使用的设备");
+			}
+		} catch (Exception e) {
+			logger.error("查询用户所有在用设备数据异常", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	@Override
+	public String getStepDeriveData(long userId, int stepData) {
+		// 获取用户信息
+		List<Integer> userInfo = this.getUserHeightAndWeight(userId);
+		int height = userInfo.get(0);
+		int weight = userInfo.get(1);
+		String deriveData = this.getKcalAndDisatnceBySteps(height, weight, stepData);
+		return deriveData;
+	}
+
+	@Override
+	public void selectAllUserDeviceData(int date) {
+		// long startTime = Long.valueOf(System.currentTimeMillis());
+		String logDesc = "获取用户前一天设备数据";
+		logger.debug(logDesc);
+		List<DeviceMqBean> deviceMqList = deviceMapper.selectAllUserDeviceIndicator();
+		// int date = Integer.valueOf(DeviceUtil.formatNowtime("yyyyMMdd")) - 1;
+		for (DeviceMqBean deviceMqBean : deviceMqList) {
+			JSONObject jsonParams = JSONObject.fromObject(deviceMqBean);
+			jsonParams.put("startDate", date);
+			jsonParams.put("endDate", date);
+			jsonParams.put("logTag", 1);
+			// int deviceId = jsonParams.getInt("deviceId");
+
+			// 发送消息
+			indicatorDeviceMQTemplate.convertAndSend(jsonParams);
+
+			// IDeviceMaker deviceMaker = new DeviceMakerImpl();
+			// IDevice deviceServer = deviceMaker.makeDevice(deviceId);
+			// try {
+			// deviceServer.getRemoteData(jsonParams);
+			// } catch (DeviceException e) {
+			// logger.error(logDesc + "获取设备接口数据异常", e);
+			// } catch (FileException e) {
+			// logger.error(logDesc + "写入日志文件异常", e);
+			// } catch (IOException e) {
+			// logger.error(logDesc + "写入日志文件异常", e);
+			// }
+		}
+		//
+		// long useTime = Long.valueOf(System.currentTimeMillis()) - startTime;
+		// logger.debug("取前一天所有用户数据-参数放入消息队列时间={}", useTime);
+		//
+		// try {
+		// File file = new File("/home/app/temp/device_time.log");
+		// FileUtils.writeStringToFile(file,
+		// DeviceUtil.formatNowtime("yyyy-MM-dd HH:mm:ss") + "
+		// 取前一天所有用户数据-参数放入消息队列时间(毫秒)=" + useTime + "\n",
+		// "UTF-8", true);
+		// } catch (IOException e) {
+		// logger.error("记录调度时间异常", e);
+		// }
+	}
+
+	@Override
+	public Integer getDeviceByUserIndicator(long userId, int indicatorId) throws DeviceException {
+		try {
+			return deviceMapper.selectDeviceByUserIndicator(userId, indicatorId);
+		} catch (Exception e) {
+			throw new DeviceException(500201);
+		}
+	}
+
+	@Override
+	public void saveGudongUpload(DeviceGudongBean deviceGudongBean) throws DeviceException {
+		try {
+			deviceMapper.insertGudongUpload(deviceGudongBean);
+		} catch (Exception e) {
+			logger.error("保存咕咚上传数据出错", e);
+			throw new DeviceException(510201);
+		}
+	}
+
+	@Override
+	public JSONObject getGudongRoute(String gdUserId, int deviceId, String routeId) throws DeviceException {
+		String logDesc = "获取用户上传路线接口";
+		DeviceGudongBean gudongBean = null;
+		try {
+			gudongBean = deviceMapper.selectGudongUrl(gdUserId, deviceId);
+		} catch (Exception e) {
+			logger.error("查询咕咚获取用户上传数据URL和token={}", e);
+			throw new DeviceException(500201);
+		}
+		if (gudongBean == null) {
+			logger.warn("查询咕咚id绑定的用户token为空,可能是此咕咚用户没有绑定健康立方用户.");
+			throw new DeviceException(700703);
+		}
+		String url = gudongBean.getDeviceServerUrl();
+		String accessToken = gudongBean.getAccessToken();
+		Map<String, String> headerMap = new HashMap<String, String>();
+		headerMap.put("Authorization", "Bearer " + accessToken);
+		JSONObject entityJson = new JSONObject();
+		entityJson.put("route_id", routeId);
+		try {
+			String reponseString = DeviceUtil.httpPost(url, null, headerMap, entityJson.toString());
+			logger.debug(logDesc + "返回结果={}", reponseString);
+			if (reponseString != null && !"".equals(reponseString)) {
+				JSONObject routeJson = JSONObject.fromObject(reponseString);
+				routeJson = JSONObject.fromObject(routeJson);
+				if (routeJson.has("status") && "OK".equals(routeJson.getString("status"))) {
+					if ("{}".equals(routeJson.getJSONObject("data").toString())) {
+						logger.warn(logDesc + "返回结果为空");
+						throw new DeviceException(700703);
+					}
+					return routeJson.getJSONObject("data");
+				} else {
+					logger.error("调用接口返回结果错误={}", routeJson.toString());
+					throw new DeviceException(700703);
+				}
+			} else {
+				logger.warn(logDesc + "返回结果为空");
+				throw new DeviceException(700703);
+			}
+		} catch (Exception e) {
+			logger.error(logDesc + "异常=", e);
+			throw new DeviceException(700703);
+		}
+	}
+
+	@Override
+	public void saveGudongRoute(JSONObject routeJson) throws DeviceException {
+		DeviceGudongRouteBean gudongRoute = new DeviceGudongRouteBean();
+		gudongRoute.setDeviceId(routeJson.getInt("device_id"));
+		gudongRoute.setGdUserId(routeJson.getString("gd_user_id"));
+		gudongRoute.setResourceId(routeJson.getString("resource_id"));
+		gudongRoute.setTotalTime(Math.round((float) routeJson.getDouble("total_time")));
+		gudongRoute.setUploadTime(routeJson.getString("upload_time"));
+		gudongRoute.setTotalCalories((float) routeJson.getDouble("total_calories"));
+		gudongRoute.setStartTime(routeJson.getString("start_time"));
+		gudongRoute.setSportsType(routeJson.getString("sports_type"));
+		gudongRoute.setRouteImage(routeJson.getString("route_image"));
+		// gudongRoute.setActivityResult(routeJson.getInt("activity_result"));
+		// 废弃了
+		gudongRoute.setEndTime(routeJson.getString("end_time"));
+		gudongRoute.setTotalLength((float) routeJson.getDouble("total_length"));
+		gudongRoute.setActivityType(routeJson.getString("activity_type"));
+		gudongRoute.setGoalType(routeJson.getString("goal_type"));
+		gudongRoute.setGoalValue((float) routeJson.getDouble("goal_value"));
+		try {
+			deviceMapper.insertGudongRoute(gudongRoute);
+		} catch (Exception e) {
+			logger.error("保存用户上传线路数据异常", e);
+			throw new DeviceException(510201);
+		}
+	}
+
+	@Override
+	public JSONObject getBluetoothMac(int deviceId, long userId) throws DeviceException {
+		try {
+			String str = deviceMapper.selectBluetoothMac(deviceId, userId);
+			if (str != null) {
+				JSONObject macJson = JSONObject.fromObject(str.split("###")[1]);
+				macJson.put("mac", str.split("###")[0]);
+				return macJson;
+			} else {
+				return null;
+			}
+
+		} catch (Exception e) {
+			logger.error("查询蓝牙设备mac地址出错", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	// --------------私有方法----------------
+
+	/**
+	 * 判断设备用户id是否已经绑定其他健康立方账户
+	 *
+	 * @param deviceId
+	 * @param deviceUserId
+	 * @param userId
+	 * @return
+	 * @throws DeviceException
+	 */
+	private boolean ifDeviceUserBind(int deviceId, String deviceUserId, long userId) throws DeviceException {
+		try {
+			if (deviceMapper.selectIfDeviceBind(deviceId, deviceUserId, userId) > 0) {
+				return true;
+			} else {
+				return false;
+			}
+		} catch (Exception e) {
+			logger.error("判断设备用户id是否已经绑定其他健康立方账户出错" + e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	/**
+	 * 更新用户设备表
+	 * 
+	 * @param userId
+	 * @param deviceId
+	 * @param userDeviceId
+	 * @throws DeviceException
+	 */
+	private void updateUserDevice(long userId, int deviceId, String userDeviceId) throws DeviceException {
+		try {
+			deviceMapper.updateUserDevice(userId, deviceId, userDeviceId);
+		} catch (Exception e) {
+			logger.error("更新用户设备表出错", e);
+			throw new DeviceException(530201);
+		}
+	}
+
+	/**
+	 * 对活动URL中添加Token
+	 *
+	 * @param url
+	 * @param token
+	 * @return
+	 */
+	private String addParams(String url, String token) {
+		if (StringUtil.isNull(url)) {
+			return "";
+		}
+		return url.contains("?") ? url + "&token=" + token : url + "?token=" + token;
+	}
+
+	/**
+	 * 查询设备的品牌token是否已经存
+	 *
+	 * @param userId
+	 * @param deviceId
+	 * @return
+	 * @throws DeviceException
+	 */
+	private boolean ifhasToken(long userId, int deviceId) throws DeviceException {
+		try {
+			if (deviceMapper.selectIfhasToken(userId, deviceId) > 0) {
+				return true;
+			} else {
+				return false;
+			}
+		} catch (Exception e) {
+			logger.error("查询设备的品牌token是否已经存在出错", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	/**
+	 * 保存设备token
+	 * 
+	 * @param deviceToken
+	 * @throws DeviceException
+	 */
+	private void saveAccessToken(DeviceTokenBean deviceToken) throws DeviceException {
+		try {
+			deviceMapper.insertAccessToken(deviceToken);
+		} catch (Exception e) {
+			logger.error("保存accessToken出错", e);
+			throw new DeviceException(510201);
+		}
+	}
+
+	/**
+	 * 删除用户设备关联
+	 * 
+	 * @param deviceToken
+	 * @throws DeviceException
+	 */
+	private void saveUserDevice(DeviceTokenBean deviceToken) throws DeviceException {
+		try {
+			deviceMapper.insertUserDevice(deviceToken);
+		} catch (Exception e) {
+			logger.error("保存userDevice关联出错", e);
+			throw new DeviceException(510201);
+		}
+	}
+
+	/**
+	 * 删除用户设备关联
+	 * 
+	 * @param deviceId
+	 * @param userId
+	 * @throws DeviceException
+	 */
+	private void deleteUserDevice(int deviceId, long userId) throws DeviceException {
+		try {
+			deviceMapper.deleteUserDevice(deviceId, userId);
+		} catch (Exception e) {
+			logger.error("删除userDevice关联出错", e);
+			throw new DeviceException(530201);
+		}
+	}
+
+	/**
+	 * 删除用户token关联
+	 * 
+	 * @param deviceToken
+	 * @throws DeviceException
+	 */
+	private void deleteUserToken(int deviceId, long userId) throws DeviceException {
+		try {
+			deviceMapper.deleteUserToken(deviceId, userId);
+		} catch (Exception e) {
+			logger.error("删除用户token关联出错", e);
+			throw new DeviceException(530201);
+		}
+	}
+
+	/**
+	 * 插入用户指标设备关系
+	 *
+	 * @param userId
+	 * @param indicatorId
+	 * @param deviceId
+	 * @throws DeviceException
+	 */
+	private void insertUserIndicatorDevice(long userId, int indicatorId, int deviceId) throws DeviceException {
+		try {
+			deviceMapper.insertUserIndicatorDevice(userId, indicatorId, deviceId, 2);
+		} catch (Exception e) {
+			logger.error("插入用户指标设备关系表异常", e);
+			throw new DeviceException(510201);
+		}
+	}
+
+	/**
+	 * 删除用户指标设备关系表
+	 * 
+	 * @param userId
+	 * @param indicatorId
+	 * @param deviceId
+	 * @throws DeviceException
+	 */
+	private void deleteUserIndicatorDevice(long userId, int indicatorId, int deviceId) throws DeviceException {
+		try {
+			deviceMapper.deleteUserIndicatorDevice(userId, indicatorId, deviceId);
+		} catch (Exception e) {
+			logger.error("删除用户token关联出错", e);
+			throw new DeviceException(530201);
+		}
+	}
+
+	/**
+	 * 查询绑定设备时初始化此设备启用指标--查询设备支持指标中,哪些指标没有用户已绑定的设备开启的指标,这些指标默认开启此设备的启用状态
+	 * 
+	 * @param userId
+	 * @param indicatorId
+	 * @return
+	 * @throws DeviceException
+	 */
+	private List<Integer> getDeviceBindInitIndicator(long userId, int deviceId) throws DeviceException {
+		try {
+			return deviceMapper.selectDeviceBindInitIndicator(userId, deviceId);
+		} catch (Exception e) {
+			logger.error("查询用户指标在用的设备", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	/**
+	 * 获取用户身高体重
+	 *
+	 * @param userId
+	 * @return
+	 */
+	private List<Integer> getUserHeightAndWeight(long userId) {
+		List<Integer> userInfo = new ArrayList<Integer>();
+		// 默认值
+		int height = 170;
+		int weight = 60;
+
+		try {
+			UserCache userCache = UserCache.getUserCache();
+			String key = StringUtil.concat(":", "u", userId);
+			// 缓存获取用户身高体重
+			List<String> infoList = userCache.hmget(key, "height", "weight");
+			String heightInfo = infoList.get(0);
+			String weightInfo = infoList.get(1);
+			logger.debug("user height:{}, weight:{}", heightInfo, weightInfo);
+			if (StringUtil.isNumeric(heightInfo)) {
+				height = Integer.valueOf(heightInfo);
+			}
+			if (StringUtil.isNumeric(weightInfo)) {
+				weight = Integer.valueOf(weightInfo);
+			}
+
+		} catch (Exception e) {
+			logger.warn("获取用户信息出错", e);
+		}
+		userInfo.add(0, height);
+		userInfo.add(1, weight);
+		return userInfo;
+	}
+
+	/**
+	 * 根据步数获取卡路里和距离
+	 *
+	 * @param height
+	 *            身高
+	 * @param weight
+	 *            体重
+	 * @param steps
+	 *            步数
+	 * @return
+	 */
+	private String getKcalAndDisatnceBySteps(int height, int weight, int steps) {
+		int pace = HealthUtil.getPace(height);
+		double distance = HealthUtil.getDistance(steps, pace);
+		double kcal = HealthUtil.getKcal(steps, pace, weight);
+		String result = StringUtil.concat(";", distance, kcal);
+
+		return result;
+	}
+}

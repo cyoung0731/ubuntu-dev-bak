@@ -1,0 +1,11 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<?compositeMetadataRepository version='1.0.0'?>
+<repository name='Mylyn 3.21 for Eclipse 4.5 and 4.6' type='org.eclipse.equinox.internal.p2.metadata.repository.CompositeMetadataRepository' version='1.0.0'>
+  <properties size='2'>
+    <property name='p2.compressed' value='true'/>
+    <property name='p2.timestamp' value='1475857009000'/>
+  </properties>
+  <children size='1'>
+    <child location='../../drops/3.21.0/v20160929-2030/'/>
+  </children>
+</repository>

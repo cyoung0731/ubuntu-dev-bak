@@ -1,0 +1,417 @@
+
+package com.rocedar.device.data.impl;
+
+import java.io.IOException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.apache.http.HttpEntity;
+import org.apache.http.NameValuePair;
+import org.apache.http.client.entity.UrlEncodedFormEntity;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.http.util.EntityUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import com.rocedar.device.bean.DeviceBean;
+import com.rocedar.device.bean.DeviceTokenBean;
+import com.rocedar.device.bean.DeviceUrlBean;
+import com.rocedar.device.data.IDevice;
+import com.rocedar.device.exception.DeviceException;
+import com.rocedar.device.service.DeviceService;
+import com.rocedar.device.util.ApplicationContextUtil;
+import com.rocedar.device.util.DeviceConstants;
+import com.rocedar.device.util.DeviceUtil;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+/**
+ * 乐心手环
+ * 
+ * @author zcy
+ */
+public class DeviceLexinImpl implements IDevice {
+
+	private Logger logger = LogManager.getLogger(DeviceLexinImpl.class);
+
+	private DeviceService deviceService = (DeviceService) ApplicationContextUtil.getContext().getBean("deviceService");
+
+	@Override
+	public String getOauthCode(int deviceId, long userId) throws DeviceException {
+		String logDesc = "调用乐心获取code接口";
+		DeviceBean device = deviceService.getDevice(userId, deviceId);
+		JSONObject tokenParams = JSONObject.fromObject(device.getDeviceTokenParams());
+		try {
+			String timestamp = String.valueOf(System.currentTimeMillis());
+			List<NameValuePair> params = new ArrayList<NameValuePair>();
+			params.add(new BasicNameValuePair("app_id", tokenParams.getString("app_id")));
+			params.add(new BasicNameValuePair("response_type", tokenParams.getString("response_type")));
+			params.add(new BasicNameValuePair("timestamp", timestamp));
+			String appSecret = tokenParams.getString("AppSecret");
+			// 获取乐心签名参数
+			String checksum = getLexinSign(params, appSecret);
+			params.add(new BasicNameValuePair("checksum", checksum));
+			String url = DeviceConstants.LX_OAUTH2_CODE;
+			url = url + "?" + params.toString().replace("[", "").replace("]", "").replace(", ", "&");
+			logger.debug(url);
+			return url;
+		} catch (Exception e) {
+			logger.error(logDesc + "异常=" + e);
+			throw new DeviceException(700401);
+		}
+
+	}
+
+	@Override
+	public DeviceTokenBean getAccessTokenFromCode(int deviceId, long userId, String code) throws DeviceException {
+		String logDesc = "调用乐心获取token接口";
+		DeviceBean device = deviceService.getDevice(userId, deviceId);
+		JSONObject tokenParams = JSONObject.fromObject(device.getDeviceTokenParams());
+		JSONObject resultJson = null;
+		List<NameValuePair> params = new ArrayList<NameValuePair>();
+		String url = "";
+		try {
+			String timestamp = String.valueOf(System.currentTimeMillis());
+			params.add(new BasicNameValuePair("app_id", tokenParams.getString("app_id")));
+			params.add(new BasicNameValuePair("grant_type", tokenParams.getString("grant_type")));
+			params.add(new BasicNameValuePair("code", code));
+			params.add(new BasicNameValuePair("timestamp", timestamp));
+			String appSecret = tokenParams.getString("AppSecret");
+			// 获取乐心签名参数
+			String checksum = getLexinSign(params, appSecret);
+			url = device.getDeviceTokenUrl() + "?app_id=" + tokenParams.getString("app_id") + "&grant_type="
+					+ tokenParams.getString("grant_type") + "&code=" + code + "&timestamp=" + timestamp + "&checksum="
+					+ checksum;
+			String reponseString = httpPost(url, null, null, null);
+			logger.debug(logDesc + "返回结果=" + reponseString);
+			resultJson = JSONObject.fromObject(reponseString);
+			if (resultJson.has("error")) {
+				logger.error(logDesc + "接口返回错误{}", resultJson.toString());
+				logger.error(logDesc + "url:{}, params:{}", device.getDeviceTokenUrl(), params.toString());
+				logger.error("crul -d \"{}\" \"{}\"",
+						params.toString().replace("[", "").replace("]", "").replace(", ", "&"),
+						device.getDeviceTokenUrl());
+				throw new DeviceException(700401,
+						resultJson.getString("error") + ":" + resultJson.getString("error_description"));
+			} else {
+				DeviceTokenBean deviceToken = new DeviceTokenBean();
+				deviceToken.setDeviceId(deviceId);
+				deviceToken.setUserId(userId);
+				deviceToken.setAccessToken(resultJson.getString("acessToken"));
+				deviceToken.setRefreshToken(resultJson.getString("refreshToken"));
+				deviceToken.setExpireTime(
+						Long.valueOf(DeviceUtil.timeStamp2Date(resultJson.getString("expiresIn"), "yyyyMMddHHmmss")));
+				deviceToken.setDeviceUserId(resultJson.getString("openId"));
+				return deviceToken;
+			}
+		} catch (Exception e) {
+			logger.error(logDesc + "异常=" + e);
+			logger.error(logDesc + "url:{}, params:{}", url, params.toString());
+			throw new DeviceException(700401);
+		}
+	}
+
+	/**
+	 * 刷新token
+	 *
+	 * @param deviceId
+	 * @param userId
+	 * @throws DeviceException
+	 */
+	public void refreshToken(int deviceId, long userId) throws DeviceException {
+		String logDesc = "乐心刷新token";
+		String url = "";
+		try {
+			DeviceUrlBean deviceUrl = deviceService.selectDeviceUrl(userId, deviceId, DeviceConstants.REFRESH_TOKEN);
+			JSONObject deviceTokenParams = JSONObject.fromObject(deviceUrl.getDeviceTokenParams());
+			String timestamp = String.valueOf(System.currentTimeMillis());
+			List<NameValuePair> params = new ArrayList<NameValuePair>();
+			params.add(new BasicNameValuePair("app_id", deviceTokenParams.getString("app_id")));
+			params.add(new BasicNameValuePair("grant_type", deviceTokenParams.getString("refresh_grant_type")));
+			params.add(new BasicNameValuePair("refresh_token", deviceUrl.getRefreshToken()));
+			params.add(new BasicNameValuePair("timestamp", timestamp));
+			String appSecret = deviceTokenParams.getString("AppSecret");
+			// 获取乐心签名参数
+			String checksum = getLexinSign(params, appSecret);
+			url = deviceUrl.getDeviceServerUrl() + "?app_id=" + deviceTokenParams.getString("app_id") + "&grant_type="
+					+ deviceTokenParams.getString("refresh_grant_type") + "&refresh_token="
+					+ deviceUrl.getRefreshToken() + "&timestamp=" + timestamp + "&checksum=" + checksum;
+			String reponseString = httpPost(url, null, null, null);
+			logger.debug(logDesc + "返回结果:{}", reponseString);
+			JSONObject resultJson = JSONObject.fromObject(reponseString);
+			if (resultJson.has("error") || (resultJson.has("code") && resultJson.getInt("code") == 500)) {
+				logger.error(logDesc + "接口返回错误{}", resultJson.toString());
+				throw new DeviceException(700403,
+						resultJson.getString("error") + ":" + resultJson.getString("error_description"));
+			} else {
+				DeviceTokenBean deviceToken = new DeviceTokenBean();
+				deviceToken.setDeviceId(deviceId);
+				deviceToken.setUserId(userId);
+				deviceToken.setAccessToken(resultJson.getString("acessToken"));
+				deviceToken.setRefreshToken(resultJson.getString("refreshToken"));
+				deviceToken.setExpireTime(
+						Long.valueOf(DeviceUtil.timeStamp2Date(resultJson.getString("expiresIn"), "yyyyMMddHHmmss")));
+				deviceService.refreshToken(deviceToken);
+			}
+		} catch (Exception e) {
+			logger.error(logDesc + "异常=" + e);
+			logger.error(logDesc + "url:{}", url);
+			throw new DeviceException(700403);
+		}
+	}
+
+	public JSONObject getDeviceData(JSONObject mqJson) throws DeviceException {
+		String logDesc = "乐心获取数据接口";
+		long userId = mqJson.getLong("userId");
+		int deviceId = mqJson.getInt("deviceId");
+		int targetTypeId = mqJson.getInt("targetTypeId");
+		String startDate = mqJson.getString("startDate");
+		// String endDate = mqJson.getString("endDate");
+		DeviceUrlBean deviceUrl = deviceService.selectDeviceUrl(userId, deviceId, targetTypeId);
+		// 判断token是否已经过期
+		long nowTime = DeviceUtil.formatNowtime("yyyyMMddHHmmss") + 600;
+		if (nowTime > deviceUrl.getExpireTime()) {
+			logger.debug("token已过期，刷新token");
+			refreshToken(deviceId, userId);
+			deviceUrl = deviceService.selectDeviceUrl(userId, deviceId, targetTypeId);
+		}
+		JSONObject deviceTokenParams = JSONObject.fromObject(deviceUrl.getDeviceTokenParams());
+		JSONObject resultJson = null;
+		// --- 写请求header start ---
+		List<NameValuePair> checksumParams = new ArrayList<NameValuePair>();
+		String appId = deviceTokenParams.getString("app_id");
+		String accessToken = deviceUrl.getAccessToken();
+		String timestamp = String.valueOf(System.currentTimeMillis());
+		checksumParams.add(new BasicNameValuePair("app_id", appId));
+		checksumParams.add(new BasicNameValuePair("acess_token", accessToken));
+		checksumParams.add(new BasicNameValuePair("timestamp", timestamp));
+		String appSecret = deviceTokenParams.getString("AppSecret");
+		// 获取乐心签名参数
+		String checksum = getLexinSign(checksumParams, appSecret);
+		String url = deviceUrl.getDeviceServerUrl() + "?app_id=" + appId + "&acess_token=" + accessToken + "&timestamp="
+				+ timestamp + "&checksum=" + checksum;
+		JSONObject entityJson = new JSONObject();
+		entityJson.put("openid", deviceUrl.getDeviceUserId());
+		entityJson.put("day",
+				startDate.substring(0, 4) + "-" + startDate.substring(4, 6) + "-" + startDate.substring(6, 8));
+		String result = httpPost(url, null, null, entityJson.toString());
+		logger.debug(logDesc + "返回数据:{}", result);
+		resultJson = JSONObject.fromObject(result);
+		if (resultJson.has("error") || resultJson.has("code")) {
+			logger.error(logDesc + "接口返回错误{}", resultJson.toString());
+			throw new DeviceException(700402, resultJson.toString());
+		} else {
+			resultJson.put("date", startDate);
+			return resultJson;
+		}
+	}
+
+	@Override
+	public JSONArray getRemoteData(JSONObject mqJson) throws DeviceException {
+
+		JSONArray resultArray = new JSONArray();
+		
+		if (mqJson.getInt("targetTypeId") == (DeviceConstants.BLOODPRESSURE)){
+			
+		}
+		
+		if (mqJson.getInt("startDate") == mqJson.getInt("endDate")) {
+			resultArray.add(getDeviceData(mqJson));
+		} else {
+			JSONObject startJson = getDeviceData(mqJson);
+			startJson.put("date", mqJson.getInt("startDate"));
+			mqJson.put("startDate", mqJson.getInt("endDate"));
+			JSONObject endJson = getDeviceData(mqJson);
+			endJson.put("date", mqJson.getInt("endDate"));
+			resultArray.add(startJson);
+			resultArray.add(endJson);
+		}
+
+		switch (mqJson.getInt("targetTypeId")) {
+		case DeviceConstants.STEPS:
+			resultArray = fromatDeviceResultJson(resultArray, mqJson, "stepCount", "recordTitle");
+			break;
+		case DeviceConstants.SLEEP:
+			resultArray = fromatDeviceResultJson(resultArray, mqJson, "", "");
+		default:
+			break;
+		}
+		return resultArray;
+	}
+
+	//////////////////////////////////////
+
+	/**
+	 * 获取乐心checksum参数 SHA1(AppSecret+app_id+scope+state+ response_type +timestamp),
+	 * 将上述参数按照ASC码先排序，然后拼接成一个字符串，再进行SHA1哈希计算， 转化成16进制字符(String，小写)
+	 * 
+	 * @param params
+	 * @param appSecret
+	 * @return
+	 * @throws DeviceException
+	 */
+	private String getLexinSign(List<NameValuePair> params, String appSecret) throws DeviceException {
+		List<String> paramValueList = new ArrayList<String>();
+		paramValueList.add(appSecret);
+		// 参数按照ASC码先排序
+		for (NameValuePair param : params) {
+			paramValueList.add(param.getValue());
+		}
+		Collections.sort(paramValueList);
+		StringBuffer sb = new StringBuffer();
+		// 然后拼接成一个字符串
+		for (String s : paramValueList) {
+			sb.append(s);
+		}
+		logger.debug("乐心参数值排序后结果:{}", sb.toString());
+		// 进行SHA1哈希计算
+		return SHA1(sb.toString());
+	}
+
+	// 进行SHA1哈希计算
+	private String SHA1(String decript) throws DeviceException {
+		try {
+			MessageDigest digest = java.security.MessageDigest.getInstance("SHA-1");
+			digest.update(decript.getBytes());
+			byte messageDigest[] = digest.digest();
+			// Create Hex String
+			StringBuffer hexString = new StringBuffer();
+			// 字节数组转换为 十六进制 数
+			for (int i = 0; i < messageDigest.length; i++) {
+				String shaHex = Integer.toHexString(messageDigest[i] & 0xFF);
+				if (shaHex.length() < 2) {
+					hexString.append(0);
+				}
+				hexString.append(shaHex);
+			}
+			logger.debug("乐心参数值进行SHA1哈希计算后结果:{}", hexString.toString());
+			return hexString.toString();
+
+		} catch (NoSuchAlgorithmException e) {
+			logger.error("乐心接口签名,参数值进行SHA1哈希计算出错", e);
+			throw new DeviceException(700404);
+		}
+	}
+
+	/**
+	 * httpPost方法
+	 * 
+	 * @param url
+	 * @param params
+	 * @param headers
+	 * @param entity
+	 * @return
+	 * @throws Exception
+	 */
+	private String httpPost(String url, List<NameValuePair> params, Map<String, String> headers, String entityString)
+			throws DeviceException {
+		HttpPost hp = new HttpPost(url);
+		CloseableHttpResponse response = null;
+		try {
+			if (params != null) {
+				hp.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
+			}
+			if (headers != null) {
+				Set<String> keys = headers.keySet();
+				for (Iterator<String> i = keys.iterator(); i.hasNext();) {
+					String key = (String) i.next();
+					hp.addHeader(key, headers.get(key));
+				}
+			}
+			if (entityString != null) {
+				StringEntity entity = new StringEntity(entityString, "utf-8");// 解决中文乱码问题
+				entity.setContentEncoding("UTF-8");
+				entity.setContentType("application/json");
+
+				hp.setEntity(entity);
+			}
+			CloseableHttpClient httpClient = HttpClients.createDefault();
+			response = httpClient.execute(hp);
+			HttpEntity responseEntity = response.getEntity();
+			String reponseString = EntityUtils.toString(responseEntity, "utf-8");
+			return reponseString;
+		} catch (Exception e) {
+			System.out.println("httpPost请求异常,接口地址:" + url + "参数:" + params + "headers:" + headers.toString() + "entity:"
+					+ entityString);
+			logger.error("httpPost请求异常,接口地址=" + url, e);
+			throw new DeviceException(700000, "httpPost请求异常,接口地址:" + url + "参数:" + params + "headers:"
+					+ headers.toString() + "entity:" + entityString);
+		} finally {
+			try {
+				if (response != null) {
+					response.close();
+				}
+			} catch (IOException e) {
+				logger.error("httpPost请求关闭响应流失败,接口地址=" + url, e);
+			}
+		}
+	}
+
+	/**
+	 * 调用设备接口返回json数据转换为统一输出格式
+	 *
+	 * @param deviceArray
+	 *            接口返回json
+	 * @param mqJson
+	 *            请求接口队列参数
+	 * @param valueName
+	 *            任务主要目标值
+	 * @param dateName
+	 *            接口返回json中时间值key
+	 * @return
+	 */
+	private JSONArray fromatDeviceResultJson(JSONArray deviceArray, JSONObject mqJson, String valueName,
+			String dateName) {
+		// logger.debug("测试debug测试debug测试debug测试debug");
+		JSONArray resultArray = new JSONArray();
+		int device_id = mqJson.getInt("deviceId");
+		int targetTypeId = mqJson.getInt("targetTypeId");
+		for (Object object : deviceArray) {
+			JSONObject subJson = JSONObject.fromObject(object);
+			// JSONObject resultJson = JSONObject.fromObject(mqJson);
+			JSONObject resultJson = new JSONObject();
+			resultJson.put("userId", mqJson.getLong("userId"));
+			resultJson.put("taskId", mqJson.getInt("taskId"));
+			resultJson.put("targetId", mqJson.getInt("targetId"));
+			resultJson.put("targetTypeId", mqJson.getInt("targetTypeId"));
+			resultJson.put("deviceId", mqJson.getInt("deviceId"));
+			String value = "";
+			if (targetTypeId == DeviceConstants.STEPS) {
+				value = subJson.getJSONObject("sport").getString("stepCount");
+				if ("0".equals(value)) {
+					continue;
+				}
+			} else if (targetTypeId == DeviceConstants.SLEEP) {
+				value = subJson.getJSONObject("sleep").getString("startTime");
+				if ("0".equals(value)) {
+					continue;
+				} else {
+					value = DeviceUtil.timeStamp2Date(value, "HHmmss");
+				}
+			} else if (targetTypeId == DeviceConstants.HEARTRATE) {
+				value = subJson.getJSONObject("sleep").getString("startTime");
+			}
+			// 跑步返回值扩展字段（跑步距离；跑步卡路里）
+			resultJson.put("deriveData", "");
+			resultJson.put("value", value);
+			resultJson.put("recordDate", subJson.getInt("date"));
+			// 调用接口数据写入日志文件
+			DeviceUtil.saveDeviceDataLog(mqJson.getLong("userId"), device_id, targetTypeId, String.valueOf(value),
+					resultJson.getString("deriveData"), resultJson.getInt("recordDate"), subJson);
+			resultArray.add(resultJson);
+		}
+		return resultArray;
+	}
+}

@@ -1,0 +1,542 @@
+
+package com.rocedar.device.service.impl;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.rocedar.common.utils.StringUtil;
+import com.rocedar.device.bean.DeviceBean;
+import com.rocedar.device.bean.DeviceGudongBean;
+import com.rocedar.device.bean.DeviceGudongRouteBean;
+import com.rocedar.device.bean.DeviceResultData;
+import com.rocedar.device.bean.DeviceTokenBean;
+import com.rocedar.device.bean.DeviceUrlBean;
+import com.rocedar.device.bean.SubDeviceBean;
+import com.rocedar.device.bean.UserDeviceBean;
+import com.rocedar.device.dao.DeviceMapper;
+import com.rocedar.device.exception.DeviceException;
+import com.rocedar.device.service.DeviceService;
+import com.rocedar.device.util.DeviceUtil;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+@Service("deviceService")
+public class DeviceServiceImpl implements DeviceService {
+
+	private Logger logger = LogManager.getLogger(DeviceServiceImpl.class);
+
+	@Autowired
+	public DeviceMapper deviceMapper;
+
+	@Override
+	public boolean ifDeviceBind(long userId, int deviceId) throws DeviceException {
+		try {
+			if (deviceMapper.selectIfBind(userId, deviceId) > 0) {
+				return true;
+			} else {
+				return false;
+			}
+		} catch (Exception e) {
+			logger.error("判断用户设备是否已经绑定出错" + e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	/**
+	 * 判断设备用户id是否已经绑定其他动吖账户
+	 *
+	 * @param deviceId
+	 * @param deviceUserId
+	 * @param userId
+	 * @return
+	 * @throws DeviceException
+	 */
+	public boolean ifDeviceUserBind(int deviceId, String deviceUserId, long userId) throws DeviceException {
+		try {
+			if (deviceMapper.selectIfDeviceBind(deviceId, deviceUserId, userId) > 0) {
+				return true;
+			} else {
+				return false;
+			}
+		} catch (Exception e) {
+			logger.error("判断设备用户id是否已经绑定其他动吖账户出错" + e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	@Override
+	public void bind(DeviceTokenBean deviceToken) throws DeviceException {
+		long userId = deviceToken.getUserId();
+		int deviceId = deviceToken.getDeviceId();
+		String deviceUserId = deviceToken.getDeviceUserId();
+		if (ifDeviceUserBind(deviceId, deviceUserId, userId)) {
+			logger.error("设备账户已被其他动吖账户绑定");
+			throw new DeviceException(490202, "设备账户已被其他动吖账户绑定");
+		}
+		if (ifhasToken(userId, deviceId)) {
+			refreshToken(deviceToken);
+		} else {
+			saveAccessToken(deviceToken);
+		}
+		saveUserDevice(deviceToken);
+	}
+
+	@Override
+	public void reLogin(DeviceTokenBean deviceToken) throws DeviceException {
+		long userId = deviceToken.getUserId();
+		int deviceId = deviceToken.getDeviceId();
+		String deviceUserId = deviceToken.getDeviceUserId();
+		if (ifDeviceUserBind(deviceId, deviceUserId, userId)) {
+			logger.error("设备账户已被其他动吖账户绑定");
+			throw new DeviceException(490202, "设备账户已被其他动吖账户绑定");
+		}
+		updateUserDevice(userId, deviceId, deviceUserId);
+		refreshToken(deviceToken);
+	}
+
+	@Override
+	public JSONArray getDevices(long userId, int taskId, int osType, String token, int appVersion)
+			throws DeviceException {
+		List<DeviceBean> deviceList = deviceMapper.selectDevices(userId, taskId, osType, appVersion);
+		if (deviceList == null) {
+			throw new DeviceException(490203, "获取设备列表失败");
+		}
+		JSONArray resultArray = new JSONArray();
+		Map<Integer, String> taskTypeMap = new HashMap<Integer, String>();
+		for (DeviceBean deviceBean : deviceList) {
+			taskTypeMap.put(deviceBean.getTaskTypeId(), deviceBean.getTaskTypeName());
+		}
+		for (Map.Entry<Integer, String> entry : taskTypeMap.entrySet()) {
+			JSONObject taskTypeJson = new JSONObject();
+			taskTypeJson.put("task_type_id", entry.getKey());
+			taskTypeJson.put("task_type_name", entry.getValue());
+			JSONArray deviceArray = new JSONArray();
+			for (DeviceBean deviceBean : deviceList) {
+				if (entry.getKey() == deviceBean.getTaskTypeId()) {
+					JSONObject deviceJson = new JSONObject();
+					deviceJson.put("device_id", deviceBean.getDeviceId());
+					deviceJson.put("device_name", deviceBean.getDeviceName());
+					deviceJson.put("device_logo", deviceBean.getDeviceLogo());
+					deviceJson.put("device_title", deviceBean.getDeviceTitle());
+					deviceJson.put("device_desc", deviceBean.getDeviceDesc());
+					deviceJson.put("device_function", deviceBean.getDeviceFunction());
+					deviceJson.put("bind_type", deviceBean.getBindType());
+					deviceJson.put("param_name", deviceBean.getParamName());
+					if (deviceBean.getBindType() == 2) {// 如果是
+						deviceJson.put("device_jump_url", addParams(deviceBean.getDeviceJumpUrl(), token));
+					} else if (deviceBean.getBindType() == 4 || deviceBean.getBindType() == 5) {
+						// 蓝牙名显示名映射
+						// 蓝牙最低版本,协议
+						// {'protocol':'BLE','version':'4.0','device_name':'PE841','display_name':'缘渡手串'}
+						JSONObject extJson = JSONObject.fromObject(deviceBean.getExt());
+						deviceJson.put("bluetooth", extJson);
+						deviceJson.put("device_jump_url", "");
+					} else {
+						deviceJson.put("device_jump_url", deviceBean.getDeviceJumpUrl());
+					}
+					deviceJson.put("redirect_url", deviceBean.getRedirectUrl());
+					deviceJson.put("app_addr", deviceBean.getAppAddr());
+					deviceJson.put("app_name", deviceBean.getAppName());
+					deviceJson.put("status", deviceBean.getStatus());
+					deviceArray.add(deviceJson);
+				}
+				taskTypeJson.put("device", deviceArray);
+			}
+			resultArray.add(taskTypeJson);
+		}
+		return resultArray;
+	}
+
+	@Override
+	public JSONArray getDevicesByIndicator(long userId, int indicatorId, int osType, String token, int appVersion)
+			throws DeviceException {
+		List<DeviceBean> deviceList = deviceMapper.selectDevicesByIndicator(userId, indicatorId, appVersion, osType);
+		if (deviceList == null) {
+			throw new DeviceException(490203, "获取设备列表失败");
+		}
+		JSONArray resultArray = new JSONArray();
+		Map<Integer, String> indicatorMap = new HashMap<Integer, String>();
+		for (DeviceBean deviceBean : deviceList) {
+			indicatorMap.put(deviceBean.getIndicatorId(), deviceBean.getIndicatorName());
+		}
+		for (Map.Entry<Integer, String> entry : indicatorMap.entrySet()) {
+			JSONObject indicatorJson = new JSONObject();
+			indicatorJson.put("indicator_id", entry.getKey());
+			indicatorJson.put("indicator_name", entry.getValue());
+			JSONArray deviceArray = new JSONArray();
+			for (DeviceBean deviceBean : deviceList) {
+				if (entry.getKey() == deviceBean.getIndicatorId()) {
+					JSONObject deviceJson = new JSONObject();
+					deviceJson.put("device_id", deviceBean.getDeviceId());
+					deviceJson.put("device_name", deviceBean.getDeviceName());
+					deviceJson.put("device_logo", deviceBean.getDeviceLogo());
+					deviceJson.put("device_title", deviceBean.getDeviceTitle());
+					deviceJson.put("device_desc", deviceBean.getDeviceDesc());
+					deviceJson.put("device_function", deviceBean.getDeviceFunction());
+					deviceJson.put("bind_type", deviceBean.getBindType());
+					deviceJson.put("param_name", deviceBean.getParamName());
+					if (deviceBean.getBindType() == 2) {// 如果是
+						deviceJson.put("device_jump_url", addParams(deviceBean.getDeviceJumpUrl(), token));
+					} else if (deviceBean.getBindType() == 4 || deviceBean.getBindType() == 5) {
+						// 蓝牙名显示名映射
+						// 蓝牙最低版本,协议
+						// {'protocol':'BLE','version':'4.0','device_name':'PE841','display_name':'缘渡手串'}
+						JSONObject extJson = JSONObject.fromObject(deviceBean.getExt());
+						deviceJson.put("bluetooth", extJson);
+						deviceJson.put("device_jump_url", "");
+					} else {
+						deviceJson.put("device_jump_url", deviceBean.getDeviceJumpUrl());
+					}
+					deviceJson.put("redirect_url", deviceBean.getRedirectUrl());
+					deviceJson.put("app_addr", deviceBean.getAppAddr());
+					deviceJson.put("app_name", deviceBean.getAppName());
+					deviceJson.put("status", deviceBean.getStatus());
+					deviceArray.add(deviceJson);
+				}
+				indicatorJson.put("device", deviceArray);
+			}
+			resultArray.add(indicatorJson);
+		}
+		return resultArray;
+	}
+
+	@Override
+	public void refreshToken(DeviceTokenBean deviceToken) throws DeviceException {
+		try {
+			deviceMapper.updateAccessToken(deviceToken);
+		} catch (Exception e) {
+			logger.error("刷新token出错", e);
+			throw new DeviceException(520201);
+		}
+	}
+
+	@Override
+	public DeviceUrlBean selectDeviceUrl(long userId, int deviceId, int targetTypeId) throws DeviceException {
+		DeviceUrlBean deviceUrl = null;
+		try {
+			deviceUrl = deviceMapper.selectDeviceUrl(userId, deviceId, targetTypeId);
+		} catch (Exception e) {
+			logger.error("查询接口调用url异常", e);
+			throw new DeviceException(500201);
+		}
+		return deviceUrl;
+	}
+
+	@Override
+	public void deleteDeviceBind(long userId, int deviceId) throws DeviceException {
+		try {
+			deviceMapper.deleteUserDevice(userId, deviceId);
+			deviceMapper.deleteUserDeviceAccess(userId, deviceId);
+		} catch (Exception e) {
+			logger.error("删除用户设备表出错", e);
+			throw new DeviceException(530201);
+		}
+	}
+
+	@Override
+	public DeviceBean getDevice(long userId, int deviceId) throws DeviceException {
+
+		DeviceBean device = null;
+
+		try {
+			logger.trace("获取单个设备信息：" + deviceId);
+			device = deviceMapper.selectDevice(userId, deviceId);
+		} catch (Exception e) {
+			logger.error("获取单个设备信息", e);
+			throw new DeviceException("获取单个设备信息");
+		}
+
+		return device;
+	}
+
+	@Override
+	public UserDeviceBean getUserDevice(int deviceId, long userId, String deviceNo) throws DeviceException {
+		logger.debug("查询用设备信息。deviceId: " + deviceId + ";deviceNo: " + deviceNo);
+		UserDeviceBean userDevice = null;
+		try {
+			userDevice = deviceMapper.selectUserDevice(deviceId, userId, deviceNo);
+		} catch (Exception e) {
+			logger.error("查询用户设备信息出错", e);
+			throw new DeviceException("查询用户设备信息出错");
+		}
+		return userDevice;
+	}
+
+	@Override
+	public void saveGudongUpload(DeviceGudongBean deviceGudongBean) throws DeviceException {
+		try {
+			deviceMapper.insertGudongUpload(deviceGudongBean);
+		} catch (Exception e) {
+			logger.error("保存咕咚上传数据出错", e);
+			throw new DeviceException(510201);
+		}
+	}
+
+	@Override
+	public String[] getGudongResourceId(long userId, int startDate, int endDate) throws DeviceException {
+		try {
+			return deviceMapper.selectGudongResourceId(userId, startDate, endDate);
+		} catch (Exception e) {
+			logger.error("查询咕咚用户上传数据的resourceId错误={}", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	@Override
+	public JSONObject getGudongRoute(String gdUserId, int deviceId, String routeId) throws DeviceException {
+		String logDesc = "获取用户上传路线接口";
+		DeviceGudongBean gudongBean = null;
+		try {
+			gudongBean = deviceMapper.selectGudongUrl(gdUserId, deviceId);
+		} catch (Exception e) {
+			logger.error("查询咕咚获取用户上传数据URL和token={}", e);
+			throw new DeviceException(500201);
+		}
+		if (gudongBean == null) {
+			logger.warn("查询咕咚id绑定的用户token为空,可能是此咕咚用户没有绑定动吖用户.");
+			throw new DeviceException(700703);
+		}
+		String url = gudongBean.getDeviceServerUrl();
+		String accessToken = gudongBean.getAccessToken();
+		Map<String, String> headerMap = new HashMap<String, String>();
+		headerMap.put("Authorization", "Bearer " + accessToken);
+		JSONObject entityJson = new JSONObject();
+		entityJson.put("route_id", routeId);
+		try {
+			String reponseString = DeviceUtil.httpPost(url, null, headerMap, entityJson.toString());
+			logger.debug(logDesc + "返回结果={}", reponseString);
+			if (reponseString != null && !"".equals(reponseString)) {
+				JSONObject routeJson = JSONObject.fromObject(reponseString);
+				routeJson = JSONObject.fromObject(routeJson);
+				if (routeJson.has("status") && "OK".equals(routeJson.getString("status"))) {
+					if ("{}".equals(routeJson.getJSONObject("data").toString())) {
+						logger.warn(logDesc + "返回结果为空");
+						throw new DeviceException(700703);
+					}
+					return routeJson.getJSONObject("data");
+				} else {
+					logger.error("调用接口返回结果错误={}", routeJson.toString());
+					throw new DeviceException(700703);
+				}
+			} else {
+				logger.warn(logDesc + "返回结果为空");
+				throw new DeviceException(700703);
+			}
+		} catch (Exception e) {
+			logger.error(logDesc + "异常=", e);
+			throw new DeviceException(700703);
+		}
+	}
+
+	@Override
+	public void saveGudongRoute(JSONObject routeJson) throws DeviceException {
+		DeviceGudongRouteBean gudongRoute = new DeviceGudongRouteBean();
+		gudongRoute.setDeviceId(routeJson.getInt("device_id"));
+		gudongRoute.setGdUserId(routeJson.getString("gd_user_id"));
+		gudongRoute.setResourceId(routeJson.getString("resource_id"));
+		gudongRoute.setTotalTime(Math.round((float) routeJson.getDouble("total_time")));
+		gudongRoute.setUploadTime(routeJson.getString("upload_time"));
+		gudongRoute.setTotalCalories((float) routeJson.getDouble("total_calories"));
+		gudongRoute.setStartTime(routeJson.getString("start_time"));
+		gudongRoute.setSportsType(routeJson.getString("sports_type"));
+		gudongRoute.setRouteImage(routeJson.getString("route_image"));
+		// gudongRoute.setActivityResult(routeJson.getInt("activity_result"));
+		// 废弃了
+		gudongRoute.setEndTime(routeJson.getString("end_time"));
+		gudongRoute.setTotalLength((float) routeJson.getDouble("total_length"));
+		gudongRoute.setActivityType(routeJson.getString("activity_type"));
+		gudongRoute.setGoalType(routeJson.getString("goal_type"));
+		gudongRoute.setGoalValue((float) routeJson.getDouble("goal_value"));
+		try {
+			deviceMapper.insertGudongRoute(gudongRoute);
+		} catch (Exception e) {
+			logger.error("保存用户上传线路数据异常", e);
+			throw new DeviceException(510201);
+		}
+	}
+
+	/**
+	 * 查询咕咚接口数据
+	 *
+	 * @param userId
+	 * @param startDate
+	 * @param endDate
+	 * @param targetType
+	 * @return
+	 * @throws DeviceException
+	 */
+	@Override
+	public List<DeviceResultData> getGudongData(long dyUserId, int startDate, int endDate, String targetType)
+			throws DeviceException {
+		try {
+			List<DeviceResultData> resultList = deviceMapper.selectGudongData(dyUserId, startDate, endDate, targetType);
+			return resultList;
+		} catch (Exception e) {
+			logger.error("查询咕咚接口数据出错", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	@Override
+	public JSONObject getBluetoothMac(int deviceId, long userId) throws DeviceException {
+		try {
+			String str = deviceMapper.selectBluetoothMac(deviceId, userId);
+			if (str != null) {
+				JSONObject macJson = JSONObject.fromObject(str.split("###")[1]);
+				macJson.put("mac", str.split("###")[0]);
+				return macJson;
+			} else {
+				return null;
+			}
+
+		} catch (Exception e) {
+			logger.error("查询蓝牙设备mac地址出错", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	@Override
+	public String getDeviceUserId(int deviceId, long userId) throws DeviceException {
+		try {
+			return deviceMapper.selectDeviceUserId(deviceId, userId);
+		} catch (Exception e) {
+			logger.error("查询绑定设备的device_user_id或sn异常", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	@Override
+	public JSONArray getSubDevices(int subDeviceKind,int osType) throws DeviceException {
+		List<SubDeviceBean> subDeviceList = null;
+		try {
+			subDeviceList = deviceMapper.selectSubDevices(osType);
+		} catch (Exception e) {
+			logger.error("查询子设备型号列表异常，参数：osType="+osType, e);
+			throw new DeviceException(500201);
+		}
+		if(subDeviceList != null && subDeviceList.size() > 0){
+			JSONArray resultJson = new JSONArray();
+			for (SubDeviceBean subDevice : subDeviceList) {
+				JSONObject subDeviceJson = new JSONObject();
+				subDeviceJson.put("sub_device_id", subDevice.getSubDeviceId());
+				subDeviceJson.put("sub_device_name", subDevice.getSubDeviceName());
+				subDeviceJson.put("device_id", subDevice.getDeviceId());
+				
+			}
+		}
+	}
+
+	// 以下为私有方法
+
+	/**
+	 * 保存用户设备关联
+	 * 
+	 * @param deviceToken
+	 * @throws DeviceException
+	 */
+	private void saveUserDevice(DeviceTokenBean deviceToken) throws DeviceException {
+		try {
+			deviceMapper.insertUserDevice(deviceToken);
+		} catch (Exception e) {
+			logger.error("保存userDevice关联出错", e);
+			throw new DeviceException(510201);
+		}
+	}
+
+	/**
+	 * 保存设备token
+	 * 
+	 * @param deviceToken
+	 * @throws DeviceException
+	 */
+	private void saveAccessToken(DeviceTokenBean deviceToken) throws DeviceException {
+		try {
+			deviceMapper.insertAccessToken(deviceToken);
+		} catch (Exception e) {
+			logger.error("保存accessToken出错", e);
+			throw new DeviceException(510201);
+		}
+	}
+
+	/**
+	 * 查询设备的品牌token是否已经存
+	 *
+	 * @param userId
+	 * @param deviceId
+	 * @return
+	 * @throws DeviceException
+	 */
+	private boolean ifhasToken(long userId, int deviceId) throws DeviceException {
+		try {
+			if (deviceMapper.selectIfhasToken(userId, deviceId) > 0) {
+				return true;
+			} else {
+				return false;
+			}
+		} catch (Exception e) {
+			logger.error("查询设备的品牌token是否已经存在出错", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	/**
+	 * 更新用户设备表
+	 * 
+	 * @param userId
+	 * @param deviceId
+	 * @param userDeviceId
+	 * @throws DeviceException
+	 */
+	private void updateUserDevice(long userId, int deviceId, String userDeviceId) throws DeviceException {
+		try {
+			deviceMapper.updateUserDevice(userId, deviceId, userDeviceId);
+		} catch (Exception e) {
+			logger.error("更新用户设备表出错", e);
+			throw new DeviceException(530201);
+		}
+	}
+
+	/**
+	 * 对活动URL中添加Token
+	 *
+	 * @param url
+	 * @param token
+	 * @return
+	 */
+	private String addParams(String url, String token) {
+		if (StringUtil.isNull(url)) {
+			return "";
+		}
+		return url.contains("?") ? url + "&token=" + token : url + "?token=" + token;
+	}
+
+	@Override
+	public String selectBindingDeviceUserId(int deviceId, String deviceUserId) throws DeviceException {
+		try {
+			return deviceMapper.selectBindingDeviceUserId(deviceId, deviceUserId);
+		} catch (Exception e) {
+			logger.error("查询绑定设备的动丫user_id异常", e);
+			throw new DeviceException(500201);
+		}
+	}
+
+	@Override
+	public void saveDeviceUploadValue(long userId, int deviceId, String deviceSn, int deviceRole, int indicator_id,
+			String indicatorValue, String deriveData, long testTime, String deviceLog) throws DeviceException {
+		try {
+			deviceMapper.insertDeviceUploadLog(userId, deviceId, deviceSn, deviceRole, indicator_id, indicatorValue,
+					deriveData, testTime, deviceLog);
+		} catch (Exception e) {
+			logger.error("保存设备上传数据异常", e);
+			throw new DeviceException(510201);
+		}
+	}
+}

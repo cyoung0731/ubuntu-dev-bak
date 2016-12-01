@@ -1,0 +1,113 @@
+/**
+ * CopyRight (c) 2016 北京瑰柏科技有限公司 保留所有权利
+ */
+
+package com.rocedar.device.service.impl;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.http.NameValuePair;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.rocedar.common.exception.SystemException;
+import com.rocedar.common.rpc.DeviceServeRPCService;
+import com.rocedar.common.utils.MessageUtils;
+import com.rocedar.device.dao.ServeMapper;
+import com.rocedar.device.util.DeviceUtil;
+
+import net.sf.json.JSONObject;
+
+/**
+ * @author zcy
+ * @version 1.0.0.2016年10月28日
+ */
+@Service("deviceServeRPCService")
+public class DeviceServeRPCServiceImpl implements DeviceServeRPCService {
+
+	private static final String VHS_CREATE_URL = "http://test.mbesthealth.com/cbsService/api/member/create";
+	private static final String VHS_QUERY_URL = "http://test.mbesthealth.com/cbsService/api/member/query";
+	private static final String VHS_SECRET = "fe6bd85258684bbb8c4b767099c003bc"; // 好人生提供
+	private static final String VHS_SOURCE = "kuibo"; // 默认来源方公司简称
+
+	private Logger logger = LogManager.getLogger(DeviceServeRPCServiceImpl.class);
+
+	@Autowired
+	public ServeMapper serveMapper;
+
+	@Override
+	public int createVHSPhoneService(String memberId, String memberName, String memberType, String certType,
+			String certNo, String sex, String mobile, String remark) throws SystemException {
+		String logDesc = "调用好人生电话服务接口开通或注销电话服务";
+
+		try {
+			String sign = MessageUtils.toMD5Hex(memberId + certNo + VHS_SOURCE + VHS_SECRET);
+			List<NameValuePair> params = new ArrayList<NameValuePair>();
+			params.add(new BasicNameValuePair("memberId", memberId)); // 请求方唯一识别码：userid
+			params.add(new BasicNameValuePair("memberName", memberName)); // 姓名
+			params.add(new BasicNameValuePair("memberType", memberType)); // 用户类型 OPEN：开通 UN_SUBSCRIBE：退订
+			params.add(new BasicNameValuePair("certType", certType)); // 证件类型 1：身份证 2：其他
+			params.add(new BasicNameValuePair("certNo", certNo)); // 证件号
+			params.add(new BasicNameValuePair("mobile", mobile)); // 手机号
+			params.add(new BasicNameValuePair("sex", sex)); // 性别 0：未知 1：男 2：女
+			params.add(new BasicNameValuePair("source", VHS_SOURCE));
+			params.add(new BasicNameValuePair("remark", remark)); // 备注
+			params.add(new BasicNameValuePair("sign", sign));
+			String response = DeviceUtil.httpPost(VHS_CREATE_URL, params, null, null);
+			logger.debug(logDesc + "返回{}, url：{}， params：{}", response, VHS_CREATE_URL, params.toString());
+			JSONObject resultJson = JSONObject.fromObject(response);
+			if (resultJson.getString("status").equals("OK")) {
+				return 0; // 成功
+			} else {
+				logger.error(logDesc + "失败，接口返回值：{}, url：{}， params：{}", response, VHS_CREATE_URL, params.toString());
+				throw new SystemException(701601, "激活失败，请重试或联系客服。");
+				// return 1; // 调用接口成功,接口返回失败信息;
+			}
+		} catch (Exception e) {
+			logger.error(logDesc + "异常");
+			throw new SystemException(701601, "激活失败，请重试或联系客服。");
+		}
+	}
+
+	@Override
+	public int queryVHSPhoneServiceStatus(String memberId, String memberType) throws SystemException {
+
+		String logDesc = "调用好人生查询电话服务开通状态接口";
+
+		try {
+
+			String sign = MessageUtils.toMD5Hex(memberId + VHS_SOURCE + VHS_SECRET);
+
+			List<NameValuePair> params = new ArrayList<NameValuePair>();
+			params.add(new BasicNameValuePair("memberId", memberId));
+			params.add(new BasicNameValuePair("memberType", memberType));
+			params.add(new BasicNameValuePair("source", VHS_SOURCE));
+			params.add(new BasicNameValuePair("sign", sign));
+			String response = DeviceUtil.httpPost(VHS_QUERY_URL, params, null, null);
+			logger.debug(logDesc + "返回{}, url：{}， params：{}", response, VHS_QUERY_URL, params.toString());
+			JSONObject resultJson = JSONObject.fromObject(response);
+			if (resultJson.getString("status").equals("OK")) {
+				if (resultJson.has("result")) {
+					JSONObject statusJson = resultJson.getJSONObject("result");
+					if ("完成".equals(statusJson.getString("serviceStatus"))) {
+						return 0;
+					} else {
+						throw new SystemException(701601, "等待处理");
+					}
+				} else {
+					throw new SystemException(701601, "此用户没有调用过开通或退订接口");
+				}
+			} else {
+				logger.error(logDesc + "失败，接口返回值：{}, url：{}， params：{}", response, VHS_QUERY_URL, params.toString());
+				throw new SystemException(701601, "接口返回错误信息：" + response);
+			}
+		} catch (Exception e) {
+			logger.error(logDesc + "异常");
+			throw new SystemException(701601, "调用借接口时异常：" + e.getMessage());
+		}
+	}
+}

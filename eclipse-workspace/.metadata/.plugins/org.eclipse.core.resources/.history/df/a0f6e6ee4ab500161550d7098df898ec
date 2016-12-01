@@ -1,0 +1,8 @@
+package com.rocedar.device.bean;
+
+public class Snippet {
+	public static void main(String[] args) {
+		dongya
+	}
+}
+

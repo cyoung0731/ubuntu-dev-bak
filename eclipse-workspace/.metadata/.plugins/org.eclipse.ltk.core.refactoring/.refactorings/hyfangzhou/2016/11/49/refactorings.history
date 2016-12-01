@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<session version="1.0">
+<refactoring comment="Copy element &apos;ConfigInfoBean.java&apos; to &apos;hydevice/src/main/java/com.huanyi.device.bean&apos;&#x0A;- Original project: &apos;hyfangzhou&apos;&#x0A;- Destination element: &apos;hydevice/src/main/java/com.huanyi.device.bean&apos;&#x0A;- Original element: &apos;com.huanyi.fangzhou.bean.ConfigInfoBean.java&apos;" description="Copy compilation unit" destination="=hydevice/src\/main\/java&lt;com.huanyi.device.bean" element1="/src\/main\/java&lt;com.huanyi.fangzhou.bean{ConfigInfoBean.java" files="0" flags="589830" folders="0" id="org.eclipse.jdt.ui.copy" policy="org.eclipse.jdt.ui.copyResources" stamp="1480302304114" units="1" version="1.0"/>
+</session>

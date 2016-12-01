@@ -1,0 +1,538 @@
+
+package com.rocedar.device.service.impl;
+
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Iterator;
+import java.util.List;
+import java.util.regex.Pattern;
+
+import org.apache.http.NameValuePair;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.amqp.core.AmqpTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import com.rocedar.cache.UserCache;
+import com.rocedar.common.exception.DBException;
+import com.rocedar.device.bean.AioReportBean;
+import com.rocedar.device.bean.DeviceConfigInfoBean;
+import com.rocedar.device.dao.AioMapper;
+import com.rocedar.device.exception.DeviceException;
+import com.rocedar.device.service.AioService;
+import com.rocedar.device.util.DeviceConstants;
+import com.rocedar.device.util.DeviceUtil;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+@Service("aioService")
+public class AioServiceImpl implements AioService {
+
+	Logger logger = LogManager.getLogger(AioServiceImpl.class);
+
+	@Autowired
+	public AioMapper aioMapper;
+
+	@Autowired
+	public DeviceConfigInfoBean deviceConfigInfoBean;
+
+	@Autowired
+	private AmqpTemplate indicatorDataMQTemplate;
+
+	// -----------------公共方法 start-----------------
+
+	@Override
+	public void saveReport(AioReportBean aioReport) throws DeviceException {
+		try {
+			aioMapper.insertReport(aioReport);
+		} catch (Exception e) {
+			logger.error("插入数据库异常(保存一体机体检报告列表)=", e);
+			throw new DeviceException(510201, "保存一体机体检报告列表是,数据库插入错误");
+		}
+
+		// 调用分发接口,保存体检报告列表到分发服务
+		List<NameValuePair> params = new ArrayList<NameValuePair>();
+		params.add(new BasicNameValuePair("user_id", String.valueOf(aioReport.getUserId())));
+		params.add(new BasicNameValuePair("aio_id", String.valueOf(aioReport.getChannelId())));
+		params.add(new BasicNameValuePair("report_id", aioReport.getExt()));
+		params.add(new BasicNameValuePair("report_time", String.valueOf(aioReport.getReportTime())));
+		params.add(new BasicNameValuePair("app_id", String.valueOf(DeviceConstants.DY_APP_ID)));
+		deviceConfigInfoBean.getDomainDistribute()
+		String url = DeviceUtil.getDomain("domain.distribute") + "/device/aio/report/scan/";
+		String response = DeviceUtil.httpPost(url, params, null, null);
+		JSONObject responseJson = JSONObject.fromObject(response);
+		if (responseJson.getInt("status") != 0) {
+			throw new DeviceException(responseJson.getInt("status"), responseJson.getString("msg"));
+		}
+	}
+
+	@Override
+	public List<AioReportBean> getReportList(long userId) throws DBException {
+		try {
+			return aioMapper.selectReportList(userId);
+		} catch (Exception e) {
+			logger.error("查询用户体检报告类表异常=", e);
+			throw new DBException(500201);
+		}
+	}
+
+	@Override
+	public JSONObject getReportFromList(long userId, long reportTime) throws DBException {
+		AioReportBean report = null;
+		try {
+			report = aioMapper.selectReportFromList(userId, reportTime);
+		} catch (Exception e) {
+			logger.error("从体检报告列表中查询体检报告详细异常=", e);
+			throw new DBException(500201);
+		}
+		JSONObject reportJson = new JSONObject();
+		if (report != null) {
+			reportJson.put("type", true);
+			reportJson.put("reportNo", reportTime);
+			reportJson.put("report", report.getReport());
+			reportJson.put("channelId", report.getChannelId());
+
+			// // 测试体检报告结果
+			// String reportTest =
+			// "{\"machineId\":\"SK-HSX60HD15051201\",\"macAddr\":\"00:0E:C4:CA:0C:EE\",\"recordNo\":\"20160227140916\",\"member\":{\"name\":\"\",\"phone\":\"15657179209\",\"idcard\":\"330106196707160217\",\"age\":\"49\",\"sex\":\"男\",\"address\":\"\",\"measureTime\":\"2016-02-27
+			// 14:09:16\",\"birthday\":\"1967-07-16\",\"barcode\":\"\",\"iccard\":\"\",\"userIcon\":\"\"},\"height\":{\"height\":\"180.50\",\"weight\":\"80.40\",\"BMI\":\"24.70\",\"idealWeight\":\"73.30\"},\"fat\":{\"fatRate\":\"25.30\",\"fat\":\"20.30\",\"exceptFat\":\"60.10\",\"waterRate\":\"54.70\",\"water\":\"43.90\",\"minerals\":\"1.70\",\"protein\":\"13\",\"fic\":\"29.20\",\"foc\":\"14.70\",\"muscle\":\"56.90\",\"fatAdjust\":\"-8.70\",\"weightAdjust\":\"-7\",\"muscleAdjust\":\"1.60\",\"basicMetabolism\":\"1658\",\"viscera\":\"10\",\"result\":\"3\",\"bmc\":\"3.20\",\"quganMuscle\":\"31.20\",\"quganFat\":\"10.70\",\"zuotuiMuscle\":\"9.80\",\"zuobiMuscle\":\"2.90\",\"youbiMuscle\":\"3.10\",\"youtuiMuscle\":\"10.00\",\"zuobiFat\":\"0.90\",\"zuotuiFat\":\"3.90\",\"youbiFat\":\"1.00\",\"youtuiFat\":\"3.80\"},\"bloodPressure\":{\"highPressure\":\"109\",\"lowPressure\":\"68\",\"pulse\":\"86\",\"result\":\"2\"},\"bo\":{\"bo\":\"96\",\"result\":\"2\",\"startTime\":\"2016/2/27
+			// 14:12:29\",\"endTime\":\"2016/2/27
+			// 14:12:34\",\"listBo\":\"96,96,96,96,96,96,96,96,96,96,96,96\",\"listBoPulse\":\"79,79,79,79,79,79,79,79,79,79,78,78\"},\"temperature\":{\"temperature\":\"36.60\",\"result\":\"2\"}}";
+			// reportJson.put("channelId", 1201001);
+			// reportJson.put("report", reportTest);
+
+			// 血压
+			String pressureResult = reportJson.getJSONObject("report").getJSONObject("bloodPressure")
+					.getString("result");
+			String pressureStr = "";
+			if ("1".equals(pressureResult)) {
+				pressureStr = "低压";
+			} else if ("2".equals(pressureResult)) {
+				pressureStr = "正常";
+			} else if ("3".equals(pressureResult)) {
+				pressureStr = "正常高压";
+			} else if ("4".equals(pressureResult)) {
+				pressureStr = "轻度高压";
+			} else if ("5".equals(pressureResult)) {
+				pressureStr = "中度高压";
+			} else if ("6".equals(pressureResult)) {
+				pressureStr = "重度高压";
+			}
+			reportJson.getJSONObject("report").getJSONObject("bloodPressure").put("result", pressureStr);
+
+			// 脂肪
+			String fatResult = reportJson.getJSONObject("report").getJSONObject("fat").getString("result");
+			String fatStr = "";
+			if ("1".equals(fatResult)) {
+				fatStr = "偏瘦";
+			} else if ("2".equals(fatResult)) {
+				fatStr = "标准";
+			} else if ("3".equals(fatResult)) {
+				fatStr = "超重";
+			} else if ("4".equals(fatResult)) {
+				fatStr = "肥胖";
+			}
+			reportJson.getJSONObject("report").getJSONObject("fat").put("result", fatStr);
+
+			// 体检报告建议
+			if (report.getSuggest() != null) {
+				String[] suggestDB = report.getSuggest().split("###");
+				JSONArray suggestListJson = new JSONArray();
+				for (String suggest : suggestDB) {
+					suggestListJson.add(suggest);
+				}
+				reportJson.put("suggest", suggestListJson);
+			}
+		} else {
+			reportJson.put("type", false);
+		}
+		return reportJson;
+	}
+
+	/**
+	 * 将JSON中值为null的转换成空字符串
+	 * 
+	 * @param srcJSON
+	 *            原JSON
+	 * @return
+	 */
+	@SuppressWarnings("unchecked")
+	private JSONObject formatJSON(JSONObject srcJSON) {
+		Iterator<String> keys = srcJSON.keys();
+		while (keys.hasNext()) {
+			String key = keys.next();
+			String value = srcJSON.getString(key);
+			if (value == null || "null".equals(value)) {
+				srcJSON.put(key, "");
+			} else {
+				Pattern pattern = Pattern.compile("\\d+\\.\\d+$|-\\d+\\.\\d+$");
+				if (pattern.matcher(value).matches()) {
+					srcJSON.put(key, String.format("%.2f", Double.parseDouble(value)));
+				}
+			}
+		}
+		return srcJSON;
+	}
+
+	@Override
+	public boolean isReportBind(String ext, int channelId) throws DBException {
+		try {
+
+			if (aioMapper.selectReportCount(ext, channelId) > 0) {
+				return true;
+			} else {
+				return false;
+			}
+		} catch (Exception e) {
+			logger.error("扫码时查询体检报告二维码是否绑定，查询数据库异常=", e);
+			throw new DBException(500201, "程序出错了...   请稍候再来…");
+		}
+	};
+
+	// -----------------公共方法 end-----------------
+
+	// -----------------双加一体机处理 start-----------------
+
+	@Override
+	public int uploadNianjia(String idCard, String phone, long reportTime, JSONObject report) {
+		logger.debug("念加上传一体机体检报告");
+
+		// 清空不需要的数据（身份证图片、条形码图片）
+		JSONObject memberJSON = report.getJSONObject("member");
+		memberJSON.put("barcode", "");
+		memberJSON.put("userIcon", "");
+		report.put("member", memberJSON);
+
+		// 体检报告内容空处理（身高体重、身体脂肪、血压）
+		// 身高体重信息
+		JSONObject heightJSON = report.getJSONObject("height");
+		if (heightJSON == null || heightJSON.isNullObject()) {
+			heightJSON = JSONObject.fromObject("{\"height\":\"\",\"weight\":\"\",\"BMI\":\"\",\"idealWeight\":\"\"}");
+		} else {
+			heightJSON = formatJSON(heightJSON);
+		}
+		report.put("height", heightJSON);
+
+		// 身体脂肪信息
+		JSONObject fatJSON = report.getJSONObject("fat");
+		if (fatJSON == null || fatJSON.isNullObject()) {
+			fatJSON = JSONObject
+					.fromObject("{\"fatRate\":\"\",\"fat\":\"\",\"exceptFat\":\"\",\"waterRate\":\"\",\"water\":\"\","
+							+ "\"minerals\":\"\",\"protein\":\"\",\"fic\":\"\",\"foc\":\"\",\"muscle\":\"\",\"fatAdjust\":\"\",\"weightAdjust\":\"\","
+							+ "\"muscleAdjust\":\"\",\"basicMetabolism\":\"\",\"viscera\":\"\",\"result\":\"\"}");
+		} else {
+			fatJSON = formatJSON(fatJSON);
+		}
+		report.put("fat", fatJSON);
+
+		// 血压信息
+		JSONObject bloodPressureJSON = report.getJSONObject("bloodPressure");
+		if (bloodPressureJSON == null || bloodPressureJSON.isNullObject()) {
+			bloodPressureJSON = JSONObject
+					.fromObject("{\"highPressure\":\"\",\"lowPressure\":\"\",\"pulse\":\"\",\"result\":\"\"}");
+		} else {
+			bloodPressureJSON = formatJSON(bloodPressureJSON);
+		}
+		report.put("bloodPressure", bloodPressureJSON);
+
+		// 血氧信息
+		JSONObject boJSON = report.getJSONObject("bo");
+		if (boJSON == null || boJSON.isNullObject()) {
+			boJSON = JSONObject.fromObject(
+					"{\"bo\":\"\",\"startTime\":\"\",\"endTime\":\"\",\"listBo\":\"\",\"listBoPulse\":\"\",\"result\":\"\"}");
+		} else {
+			boJSON = formatJSON(boJSON);
+		}
+		report.put("bo", boJSON);
+
+		// 体温信息
+		JSONObject temperatureJSON = report.getJSONObject("temperature");
+		if (temperatureJSON == null || temperatureJSON.isNullObject()) {
+			temperatureJSON = JSONObject.fromObject("{\"temperature\":\"\",\"result\":\"\"}");
+		} else {
+			temperatureJSON = formatJSON(temperatureJSON);
+		}
+		report.put("temperature", temperatureJSON);
+
+		try {
+			AioReportBean aioReport = new AioReportBean();
+			aioReport.setIdCard(idCard);
+			aioReport.setPhone(phone);
+			aioReport.setReportTime(reportTime);
+			aioReport.setReport(report.toString());
+			aioReport.setChannelId(DeviceConstants.SHUANGJIA_AIO);
+			saveReport(aioReport);
+		} catch (Exception e) {
+			logger.error("念加上传一体机体检报告出错", e);
+			return 1;
+		}
+		logger.debug("念加上传一体机体检报告完毕");
+		return 0;
+	}
+
+	@Override
+	public void bindShuangjia(long userId, String idCard, String phone, String reportTime) throws DeviceException {
+		try {
+			// 调用分发接口,保存体检报告列表到分发服务
+			List<NameValuePair> params = new ArrayList<NameValuePair>();
+			params.add(new BasicNameValuePair("report_id", idCard + "|" + phone + "|" + reportTime));
+			params.add(new BasicNameValuePair("aio_id", String.valueOf(DeviceConstants.SHUANGJIA_AIO)));
+
+			String url = DeviceUtil.getDomain("domain.distribute") + "/device/aio/report/shuangjia/";
+			String response = DeviceUtil.httpGet(url, params, null);
+			JSONObject responseJson = JSONObject.fromObject(response);
+
+			if (responseJson.getInt("status") != 0) {
+				logger.error("调用分发服务查双佳体检报告返回错误", responseJson.getString("msg"));
+				throw new DeviceException(responseJson.getInt("status"), responseJson.getString("msg"));
+			} else {
+				// 保存双佳体检报告入库
+				AioReportBean aioReport = new AioReportBean();
+				aioReport.setUserId(userId);
+				aioReport.setIdCard(idCard);
+				aioReport.setPhone(phone);
+				aioReport.setReportTime(Long.valueOf(reportTime));
+				aioReport.setReport(responseJson.getString("msg"));
+				aioReport.setChannelId(DeviceConstants.SHUANGJIA_AIO);
+				aioMapper.insertReport(aioReport);
+
+				// 发指标队列消息给山哥
+				try {
+					JSONObject shuangjiaReport = JSONObject.fromObject(aioReport.getReport());
+					// long recordDate = shuangjiaReport.getLong("recordNo");
+					long recordDate = Long.valueOf(reportTime);
+					// 血压+心率
+					sendBp(userId, -1, shuangjiaReport, recordDate, DeviceConstants.SHUANGJIA_AIO);
+					// BMI
+					sendBMI(userId, -1, shuangjiaReport, recordDate, DeviceConstants.SHUANGJIA_AIO);
+					// 血氧
+					sendBo(userId, -1, shuangjiaReport, recordDate, DeviceConstants.SHUANGJIA_AIO);
+					// 体温
+					sendTemp(userId, -1, shuangjiaReport, recordDate, DeviceConstants.SHUANGJIA_AIO);
+					// 体脂肪率
+					sendFatRate(userId, -1, shuangjiaReport, recordDate, DeviceConstants.SHUANGJIA_AIO);
+				} catch (Exception e) {
+					logger.error("血压心率上传消息队列失败");
+				}
+			}
+		} catch (Exception e) {
+			logger.error("绑定双佳体检报告异常", e);
+			throw new DeviceException(500101);
+		}
+	}
+	// -----------------双加一体机处理 end-----------------
+
+	// -----------------琥蜂一体机处理 start-----------------
+
+	@Override
+	public void uploadHufeng(JSONObject hufengReportJson, String ext) throws DeviceException {
+		try {
+			aioMapper.updateHufengReport(hufengReportJson.toString(), ext);
+		} catch (Exception e) {
+			logger.error("更新琥蜂体检报告，更新数据库异常=", e);
+			throw new DeviceException(520201);
+		}
+
+		try {
+			long userId = aioMapper.selectUserIdByExt(ext);
+			// int companyId =
+			// UserCache.getUserCache().getUserCompanyId(userId);
+			long recordDate = Long
+					.valueOf(hufengReportJson.getJSONObject("member").getString("measureTime").replace(",", ""));
+			String mqInfo = hufengReportJson.getString("mqInfo");
+			if ("bloodPressure".equals(mqInfo)) {
+				// 发血压+心率 mq消息
+				sendBp(userId, -1, hufengReportJson, recordDate, DeviceConstants.HUFENG_AIO);
+			} else if ("bo".equals(mqInfo)) {
+				// 发血氧 mq消息
+				sendBo(userId, -1, hufengReportJson, recordDate, DeviceConstants.HUFENG_AIO);
+			} else if ("height".equals(mqInfo)) {
+				// 身高体重bmi
+				sendBMI(userId, -1, hufengReportJson, recordDate, DeviceConstants.HUFENG_AIO);
+			} else if ("temperature".equals(mqInfo)) {
+				// 发体温mq消息
+				sendTemp(userId, -1, hufengReportJson, recordDate, DeviceConstants.HUFENG_AIO);
+			}
+		} catch (Exception e) {
+			logger.error("琥蜂体检报告指标发消息给山哥队列出错", e);
+		}
+	}
+
+	// -----------------倍泰一体机处理 start-----------------
+	@Override
+	public void uploadBeitai(JSONObject beitaiReportJson, String ext) throws DeviceException {
+		try {
+			aioMapper.updateHufengReport(beitaiReportJson.toString(), ext);
+		} catch (Exception e) {
+			logger.error("更新琥蜂体检报告，更新数据库异常=", e);
+			throw new DeviceException(520201);
+		}
+
+		try {
+			long userId = aioMapper.selectUserIdByExt(ext);
+			long recordDate = Long
+					.valueOf(beitaiReportJson.getJSONObject("member").getString("measureTime").replace(",", ""));
+			String mqInfo = beitaiReportJson.getString("mqInfo");
+			if ("bloodPressure".equals(mqInfo)) {
+				// 发血压+心率 mq消息
+				sendBp(userId, -1, beitaiReportJson, recordDate, DeviceConstants.BEITAI_AIO);
+			} else if ("bo".equals(mqInfo)) {
+				// 发血氧 mq消息
+				sendBo(userId, -1, beitaiReportJson, recordDate, DeviceConstants.BEITAI_AIO);
+			} else if ("height".equals(mqInfo)) {
+				// 身高体重bmi
+				sendBMI(userId, -1, beitaiReportJson, recordDate, DeviceConstants.BEITAI_AIO);
+			} else if ("fat".equals(mqInfo)) {
+				// 体脂肪率
+				sendFatRate(userId, -1, beitaiReportJson, recordDate, DeviceConstants.BEITAI_AIO);
+			}
+
+		} catch (Exception e) {
+			logger.error("琥蜂体检报告指标发消息给山哥队列出错", e);
+		}
+	}
+	// -----------------倍泰一体机处理 end-----------------
+
+	@Override
+	public void suggestToDB() throws DeviceException {
+
+		Calendar calendar = Calendar.getInstance();
+		calendar.add(Calendar.DATE, -3);
+		String reportDate = new SimpleDateFormat("yyyyMMddHHmmss").format(calendar.getTime());
+		List<AioReportBean> reportList = aioMapper.selectReportFortSuggest(Long.valueOf(reportDate));
+
+		if (reportList == null || reportList.size() == 0) {
+			return;
+		}
+
+		for (AioReportBean aioReportBean : reportList) {
+			try {
+				List<String> suggestList = UserCache.getUserCache().getAioSuggest(aioReportBean.getUserId(),
+						aioReportBean.getReportTime());
+				if (suggestList.size() == 0) {
+					continue;
+				} else {
+					String suggestDB = String.join("###", suggestList);
+					aioMapper.updateReportSuggest(suggestDB, aioReportBean.getUserId(), aioReportBean.getReportTime());
+				}
+			} catch (Exception e) {
+				throw new DeviceException(500301, "从缓存获取aio体检报告建议入库出错,user_id=" + aioReportBean.getUserId()
+						+ " , report_time=" + aioReportBean.getReportTime());
+			}
+		}
+	}
+
+	/**
+	 * 给山哥发送消息队列 * @param jsonParams
+	 * 
+	 * @param bph
+	 * @param bpl
+	 */
+	private void sendDataMessage(long userId, int companyId, int deviceId, int indicatorId, String value,
+			String deriveData, long recordDate) {
+		JSONArray jsonArray = new JSONArray();
+		JSONObject bpJson = new JSONObject();
+		bpJson.put("userId", userId);
+		bpJson.put("companyId", companyId);
+		bpJson.put("deviceId", deviceId);
+		bpJson.put("indicatorId", indicatorId);
+		bpJson.put("value", value);
+		bpJson.put("deriveData", deriveData);
+		bpJson.put("recordDate", recordDate);
+		jsonArray.add(bpJson);
+		logger.debug("传给山哥的jsonArray={}", jsonArray.toString());
+		indicatorDataMQTemplate.convertAndSend(jsonArray);
+		logger.debug("传输完");
+	}
+
+	/**
+	 * 发血压+心率 mq消息
+	 * 
+	 * @param userId
+	 * @param companyId
+	 * @param reportJson
+	 * @param recordDate
+	 */
+	private void sendBp(long userId, int companyId, JSONObject reportJson, long recordDate, int aioId) {
+		// 血压+心率
+		String hp = reportJson.getJSONObject("bloodPressure").getString("highPressure");
+		String lp = reportJson.getJSONObject("bloodPressure").getString("lowPressure");
+		if (!"".equals(hp) || !"".equals(lp)) {
+			String value = hp + ";" + lp;
+			// 传血压
+			sendDataMessage(userId, companyId, aioId, DeviceConstants.BLOODPRESSURE, value, "", recordDate);
+			// 传心率
+			value = reportJson.getJSONObject("bloodPressure").getString("pulse");
+			sendDataMessage(userId, companyId, aioId, DeviceConstants.HEARTRATE, value, "", recordDate);
+		}
+	}
+
+	/**
+	 * 发BMI mq消息
+	 * 
+	 * @param userId
+	 * @param companyId
+	 * @param reportJson
+	 * @param recordDate
+	 */
+	private void sendBMI(long userId, int companyId, JSONObject reportJson, long recordDate, int aioId) {
+		String bmi = reportJson.getJSONObject("height").getString("BMI");
+		String height = reportJson.getJSONObject("height").getString("height");
+		String weight = reportJson.getJSONObject("height").getString("weight");
+		bmi = !"".equals(bmi) ? bmi : "0";
+		height = !"".equals(height) ? height : "0";
+		weight = !"".equals(weight) ? weight : "0";
+		if (!"0".equals(bmi) || !"0".equals(height) || !"0".equals(weight)) {
+			sendDataMessage(userId, companyId, aioId, DeviceConstants.BMI, bmi, height + ";" + weight, recordDate);
+		}
+	}
+
+	/**
+	 * 发血氧 mq消息
+	 *
+	 * @param userId
+	 * @param companyId
+	 * @param reportJson
+	 * @param recordDate
+	 */
+	private void sendBo(long userId, int companyId, JSONObject reportJson, long recordDate, int aioId) {
+		String bo = reportJson.getJSONObject("bo").getString("bo");
+		if (!"".equals(bo)) {
+			sendDataMessage(userId, companyId, aioId, DeviceConstants.BLOODOXYGEN, bo, "", recordDate);
+		}
+	}
+
+	/**
+	 * 发体温mq消息
+	 *
+	 * @param userId
+	 * @param companyId
+	 * @param reportJson
+	 * @param recordDate
+	 */
+	private void sendTemp(long userId, int companyId, JSONObject reportJson, long recordDate, int aioId) {
+		String temperature = reportJson.getJSONObject("temperature").getString("temperature");
+		if (!"".equals(temperature)) {
+			sendDataMessage(userId, companyId, aioId, DeviceConstants.TEMPERATURE, temperature, "", recordDate);
+		}
+	}
+
+	/**
+	 * 发体脂肪路消息
+	 *
+	 * @param userId
+	 * @param companyId
+	 * @param reportJson
+	 * @param recordDate
+	 */
+	private void sendFatRate(long userId, int companyId, JSONObject reportJson, long recordDate, int aioId) {
+		String fatRate = reportJson.getJSONObject("fat").getString("fatRate");
+		if (!"".equals(fatRate)) {
+			sendDataMessage(userId, companyId, aioId, DeviceConstants.FATRATE, fatRate, "", recordDate);
+		}
+	}
+}
