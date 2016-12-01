@@ -1,0 +1,155 @@
+/**
+ * CopyRight (c) 2016 北京瑰柏科技有限公司 保留所有权利
+ */
+
+package com.rocedar.device.controller;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.http.NameValuePair;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.springframework.amqp.core.AmqpTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.rocedar.cache.UserCache;
+import com.rocedar.common.result.BasicResult;
+import com.rocedar.common.result.JsonArrayResult;
+import com.rocedar.common.utils.MessageUtils;
+import com.rocedar.device.bean.TestBean;
+import com.rocedar.device.data.IDevice;
+import com.rocedar.device.data.IDeviceMaker;
+import com.rocedar.device.data.impl.DeviceMakerImpl;
+import com.rocedar.device.exception.DeviceException;
+import com.rocedar.device.util.DeviceUtil;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+@RestController
+public class TestController {
+
+	private Logger logger = LogManager.getLogger(DeviceController.class);
+
+	@Autowired
+	private AmqpTemplate taskDeviceMQTemplate;
+
+	/**
+	 * 测试第三方设备获取数据接口
+	 */
+	@RequestMapping(value = "/device/getdata/", method = RequestMethod.GET)
+	public BasicResult getData(@RequestParam(value = "userId", defaultValue = "114611487582158778") long userId,
+			@RequestParam(value = "deviceId", defaultValue = "1209001") int deviceId,
+			@RequestParam(value = "targetTypeId", defaultValue = "1000") int targetTypeId,
+			@RequestParam(value = "targetId", defaultValue = "40000") int targetId,
+			@RequestParam(value = "taskId", defaultValue = "3000") int tasktId,
+			@RequestParam(value = "startDate", defaultValue = "20160908") int startDate,
+			@RequestParam(value = "endDate", defaultValue = "20160908") int endDate) {
+		System.out.println("++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+		IDeviceMaker deviceMaker = new DeviceMakerImpl();
+		IDevice deviceServer = deviceMaker.makeDevice(deviceId);
+		JSONObject mqJson = new JSONObject();
+		mqJson.put("userId", userId);
+		mqJson.put("deviceId", deviceId);
+		mqJson.put("targetTypeId", targetTypeId);
+		mqJson.put("targetId", targetId);
+		mqJson.put("taskId", tasktId);
+		mqJson.put("startDate", startDate);
+		mqJson.put("endDate", endDate);
+		try {
+			return new JsonArrayResult(0, deviceServer.getRemoteData(mqJson));
+		} catch (DeviceException e) {
+			logger.error("测试获取设备数据失败，参数：" + mqJson.toString(), e);
+			return new BasicResult(-1, "测试获取设备数据失败，异常信息：" + e.getMessage());
+		}
+	}
+
+	@RequestMapping(value = "/device/send/data/", method = RequestMethod.GET)
+	public void sendData(@RequestParam(value = "userId", defaultValue = "114611487582158778") long userId,
+			@RequestParam(value = "deviceId", defaultValue = "1209001") int deviceId,
+			@RequestParam(value = "targetTypeId", defaultValue = "1000") int targetTypeId,
+			@RequestParam(value = "targetId", defaultValue = "40000") int targetId,
+			@RequestParam(value = "taskId", defaultValue = "3000") int tasktId,
+			@RequestParam(value = "startDate", defaultValue = "20160908") int startDate,
+			@RequestParam(value = "endDate", defaultValue = "20160908") int endDate) {
+		System.out.println("++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+		TestBean test = new TestBean();
+		test.setUserId(userId);
+		test.setDeviceId(deviceId);
+		test.setTargetTypeId(targetTypeId);
+		test.setTargetId(targetId);
+		test.setTaskId(tasktId);
+		test.setStartDate(startDate);
+		test.setEndDate(endDate);
+		taskDeviceMQTemplate.convertAndSend(test);
+	}
+
+	@RequestMapping(value = "/device/cy/test/", method = RequestMethod.GET)
+	public String bindKangwei(@RequestParam(value = "pid", defaultValue = "-1") String pid,
+			@RequestParam(value = "machineId", defaultValue = "-1") String machineId,
+			@RequestParam(value = "machineType", defaultValue = "02") String machineType) {
+		String logDesc = "调用康为绑定设备接口";
+		String result = "";
+		try {
+			machineId = MessageUtils.toMD5Hex(machineId);
+			logger.debug(machineId);
+			String url = "http://sugar.izhangkong.com/wapfuwu/memberCurve/addMemberMachineId.do";
+			List<NameValuePair> params = new ArrayList<NameValuePair>();
+			params.add(new BasicNameValuePair("pid", pid));
+			params.add(new BasicNameValuePair("machineId", machineId));
+			params.add(new BasicNameValuePair("machineType", machineType));
+			result = DeviceUtil.httpGet(url, params, null);
+		} catch (Exception e) {
+			logger.error(logDesc + "异常=", e);
+		}
+		return result;
+	}
+
+	@Autowired
+	private AmqpTemplate deviceDataMQTemplate;
+
+	@RequestMapping(value = "/device/cy/sendyushan/", method = RequestMethod.GET)
+	public void sendyushan() {
+		String src = "[{\"userId\":114736608571943679,\"taskId\":3000,\"targetId\":40000,\"targetTypeId\":1000,\"deviceId\":1206001,\"deriveData\":\"\",\"value\":40300,\"recordDate\":20160919}]";
+		JSONArray jsonArray = JSONArray.fromObject(src);
+		deviceDataMQTemplate.convertAndSend(jsonArray);
+	}
+
+	@Autowired
+	private AmqpTemplate indicatorDataMQTemplate;
+
+	@RequestMapping(value = "/device/cy/sendzhangzhan/", method = RequestMethod.GET)
+	public void sendzhangzhan(@RequestParam(value = "userId", defaultValue = "114611487582158778") long userId,
+			@RequestParam(value = "devicd_id", defaultValue = "1209001") int deviceId,
+			@RequestParam(value = "indicator_id", defaultValue = "4012") int indicatorId,
+			@RequestParam(value = "value", defaultValue = "120;90") String value,
+			@RequestParam(value = "derive_data", defaultValue = "") String deriveData,
+			@RequestParam(value = "test_time", defaultValue = "20161121141919") long test_time) {
+		// 发血压值消息给张展
+		sendDataMessage(Long.valueOf(userId), -1, deviceId, indicatorId, value, deriveData, test_time);
+	}
+
+	private void sendDataMessage(long userId, int companyId, int deviceId, int indicatorId, String value,
+			String deriveData, long recordDate) {
+		JSONArray jsonArray = new JSONArray();
+		JSONObject bpJson = new JSONObject();
+		bpJson.put("userId", userId);
+		bpJson.put("companyId", companyId);
+		bpJson.put("deviceId", deviceId);
+		bpJson.put("indicatorId", indicatorId);
+		bpJson.put("value", value);
+		bpJson.put("deriveData", deriveData);
+		bpJson.put("recordDate", recordDate);
+		jsonArray.add(bpJson);
+		logger.debug("传给山哥的jsonArray={}", jsonArray.toString());
+		indicatorDataMQTemplate.convertAndSend(jsonArray);
+		logger.debug("传输完");
+	}
+
+}

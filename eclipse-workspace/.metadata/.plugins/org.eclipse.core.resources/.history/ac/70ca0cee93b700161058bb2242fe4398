@@ -1,0 +1,281 @@
+
+package com.rocedar.device.data.impl;
+
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+import org.apache.commons.codec.binary.Base64;
+import org.apache.http.NameValuePair;
+import org.apache.http.message.BasicNameValuePair;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import com.rocedar.device.bean.DeviceBean;
+import com.rocedar.device.bean.DeviceTokenBean;
+import com.rocedar.device.bean.DeviceUrlBean;
+import com.rocedar.device.data.IDevice;
+import com.rocedar.device.exception.DeviceException;
+import com.rocedar.device.service.DeviceService;
+import com.rocedar.device.util.ApplicationContextUtil;
+import com.rocedar.device.util.DeviceConstants;
+import com.rocedar.device.util.DeviceUtil;
+
+import net.sf.json.JSONArray;
+import net.sf.json.JSONObject;
+
+/**
+ * Heha手环
+ * 
+ * @author zcy
+ */
+public class DeviceHehaImpl implements IDevice {
+
+	private Logger logger = LogManager.getLogger(DeviceHehaImpl.class);
+
+	private DeviceService deviceService = (DeviceService) ApplicationContextUtil.getContext().getBean("deviceService");
+
+	@Override
+	public DeviceTokenBean getAccessTokenFromCode(int deviceId, long userId, String code) throws DeviceException {
+		String logDesc = "Heha获取token接口";
+		DeviceBean device = deviceService.getDevice(userId, deviceId);
+		JSONObject tokenParams = JSONObject.fromObject(device.getDeviceTokenParams());
+		JSONObject resultJson = null;
+		try {
+			Map<String, String> headerMap = new HashMap<String, String>();
+			headerMap.put("authorization", "Basic " + Base64.encodeBase64String(
+					(tokenParams.getString("client_id") + ":" + tokenParams.getString("client_secret")).getBytes()));
+			headerMap.put("content-type", tokenParams.getString("content-type"));
+			headerMap.put("cache-control", tokenParams.getString("cache-control"));
+			JSONObject entityJson = new JSONObject();
+			entityJson.put("grant_type", tokenParams.getString("grant_type"));
+			entityJson.put("code", code);
+			resultJson = JSONObject.fromObject(
+					DeviceUtil.httpPost(device.getDeviceTokenUrl(), null, headerMap, entityJson.toString()));
+			logger.debug(logDesc + "返回结果=" + resultJson.toString());
+			if (resultJson.has("access_token")) {
+				DeviceTokenBean deviceToken = new DeviceTokenBean();
+				deviceToken.setUserId(userId);
+				deviceToken.setDeviceId(deviceId);
+				deviceToken.setAccessToken(resultJson.getString("access_token"));
+				deviceToken.setRefreshToken(resultJson.getString("refresh_token"));
+				deviceToken.setExpireTime(DeviceUtil.getExpireTime(resultJson.getInt("expires_in")));
+				deviceToken.setDeviceUserId(resultJson.getString("uid"));
+				return deviceToken;
+			} else {
+				logger.error(logDesc + "返回错误信息:{}, url={}, header={}, body={}", resultJson.toString(),
+						device.getDeviceTokenUrl(), headerMap.toString(), entityJson.toString());
+				throw new DeviceException(701701);
+			}
+		} catch (Exception e) {
+			logger.error(logDesc + "异常, deviceId=" + deviceId + " , userId=" + userId + ", code=" + code, e);
+			throw new DeviceException(701701);
+		}
+	}
+
+	public void refreshToken(int deviceId, long userId) throws DeviceException {
+		String logDesc = "fitbit刷新token";
+		DeviceBean device = deviceService.getDevice(userId, deviceId);
+		JSONObject deviceParams = JSONObject.fromObject(device.getDeviceTokenParams());
+		JSONObject resultJson = null;
+
+		List<NameValuePair> params = new ArrayList<NameValuePair>();
+		params.add(new BasicNameValuePair("grant_type", deviceParams.getString("grant_type_refresh_token")));
+		params.add(new BasicNameValuePair("refresh_token", device.getRefreshToken()));
+		Map<String, String> headerMap = new HashMap<String, String>();
+		headerMap.put("Authorization", deviceParams.getString("Authorization"));
+		headerMap.put("Content-Type", deviceParams.getString("Content-Type"));
+		try {
+			String response = DeviceUtil.httpPost(device.getDeviceTokenUrl(), params, headerMap, null);
+			logger.debug(logDesc + "返回结果=" + response);
+			resultJson = JSONObject.fromObject(response);
+			if (resultJson.has("errors")) {
+				if (response.contains("Refresh token invalid")) {
+					logger.debug("refresh token过期，需要重新登录");
+					throw new DeviceException(490207);
+				}
+				logger.error(logDesc + "错误=" + resultJson.toString());
+				throw new DeviceException(700203);
+			}
+			DeviceTokenBean deviceToken = new DeviceTokenBean();
+			deviceToken.setUserId(userId);
+			deviceToken.setDeviceId(deviceId);
+			deviceToken.setAccessToken(resultJson.getString("access_token"));
+			deviceToken.setRefreshToken(resultJson.getString("refresh_token"));
+			deviceToken.setExpireTime(DeviceUtil.getExpireTime(resultJson.getInt("expires_in")));
+			deviceService.refreshToken(deviceToken);
+		} catch (DeviceException e) {
+			logger.error(logDesc + "异常=" + e);
+			throw new DeviceException(e.getErrorCode());
+		} catch (Exception e) {
+			logger.error(logDesc + "异常=" + e);
+			throw new DeviceException(700203);
+		}
+	}
+
+	/**
+	 * 调用设备接口获取数据
+	 *
+	 * @param mqJson
+	 * @return
+	 * @throws DeviceException
+	 */
+	private JSONArray getDevicData(JSONObject mqJson) throws DeviceException {
+		String logDesc = "Heha获取数据接口";
+		long userId = mqJson.getLong("userId");
+		int deviceId = mqJson.getInt("deviceId");
+		int targetTypeId = mqJson.getInt("targetTypeId");
+		String startDate = mqJson.getString("startDate");
+		String endDate = mqJson.getString("endDate");
+		try {
+			DeviceUrlBean deviceUrl = deviceService.selectDeviceUrl(userId, deviceId, targetTypeId);
+			JSONObject deviceTokenParams = JSONObject.fromObject(deviceUrl.getDeviceTokenParams());
+			// 判断token是否已经过期
+			long nowTime = DeviceUtil.formatNowtime("yyyyMMddHHmmss") + 600;
+			if (nowTime > deviceUrl.getExpireTime()) {
+				logger.debug("token已过期，刷新token");
+				refreshToken(deviceId, userId);
+				deviceUrl = deviceService.selectDeviceUrl(userId, deviceId, targetTypeId);
+			}
+			Map<String, String> headerMap = new HashMap<String, String>();
+			headerMap.put("cache-control", deviceTokenParams.getString("cache-control"));
+			headerMap.put("authorization", "Bearer " + deviceUrl.getAccessToken());
+			headerMap.put("content-type", deviceTokenParams.getString("content-type"));
+			String url = deviceUrl.getDeviceServerUrl();
+			startDate = DeviceUtil.addDate(startDate, 0, 0, -1); // heha接口返回不是北京时间，需要向前取一天，调用接口，再将结果转为北京时间
+			startDate = startDate.substring(0, 4) + "-" + startDate.substring(4, 6) + "-" + startDate.substring(6, 8);
+			endDate = endDate.substring(0, 4) + "-" + endDate.substring(4, 6) + "-" + endDate.substring(6, 8);
+			List<NameValuePair> params = new ArrayList<NameValuePair>();
+			params.add(new BasicNameValuePair("start_date", startDate));
+			params.add(new BasicNameValuePair("end_date", endDate));
+			String reponseString = DeviceUtil.httpGet(url, params, headerMap);
+			logger.debug(logDesc + "返回结果=" + reponseString);
+			JSONObject hehaResultJson = JSONObject.fromObject(reponseString);
+			if (hehaResultJson.has("data")) {
+				if (!"[]".equals(hehaResultJson.getString("data"))) {
+					return hehaResultJson.getJSONArray("data");
+				} else {
+					logger.warn(logDesc + "返回数据为空" + mqJson.toString());
+					return null;
+				}
+			}
+		} catch (DeviceException e) {
+			logger.error(logDesc + "异常", e);
+			throw new DeviceException(e.getErrorCode());
+		} catch (Exception e) {
+			logger.error(logDesc + "异常, mqjson=" + mqJson.toString(), e);
+			throw new DeviceException(701702);
+		}
+		return null;
+	}
+
+	@Override
+	public JSONArray getRemoteData(JSONObject mqJson) throws DeviceException {
+		JSONArray resultArray = getDevicData(mqJson);
+		if (resultArray == null) { // 返回数据为空
+			return null;
+		}
+		switch (mqJson.getInt("targetTypeId")) {
+		case DeviceConstants.STEPS:
+			try {
+				fromatStepResult(resultArray, mqJson);
+			} catch (Exception e) {
+				logger.error("格式化heha返回步数数据出错，参数：" + mqJson.toString() + "调用接口返回数据：" + resultArray.toString(), e);
+				throw new DeviceException(701702);
+			}
+			break;
+		}
+		return resultArray;
+	}
+
+	/**
+	 * 调用设备接口返回json数据转换为统一输出格式
+	 *
+	 * @param deviceArray
+	 *            接口返回json
+	 * @param mqJson
+	 *            请求接口队列参数
+	 * @param valueName
+	 *            任务主要目标值
+	 * @param dateName
+	 *            接口返回json中时间值key
+	 * @return
+	 */
+	private JSONArray fromatStepResult(JSONArray deviceArray, JSONObject mqJson) throws Exception {
+		int startDateStep = 0;
+		int endDateStep = 0;
+		for (Object object : deviceArray) {
+			JSONObject subJson = JSONObject.fromObject(object);
+			int date = Integer.valueOf(dealDateFormat(subJson.getString("date")));
+			if (date == mqJson.getInt("startDate")) {
+				startDateStep += subJson.getInt("step");
+			} else if (date == mqJson.getInt("endDate")) {
+				endDateStep += subJson.getInt("step");
+			}
+		}
+		JSONArray resultArray = new JSONArray();
+		JSONObject resultJson = new JSONObject();
+		resultJson.put("userId", mqJson.getLong("userId"));
+		resultJson.put("taskId", mqJson.getInt("taskId"));
+		resultJson.put("targetId", mqJson.getInt("targetId"));
+		resultJson.put("targetTypeId", mqJson.getInt("targetTypeId"));
+		resultJson.put("deviceId", mqJson.getInt("deviceId"));
+		resultJson.put("deriveData", "");
+		if (startDateStep > 0) {
+			resultJson.put("value", startDateStep);
+			resultJson.put("recordDate", mqJson.getInt("startDate"));
+			resultArray.add(resultJson);
+		}
+		if (endDateStep > 0) {
+			resultJson.put("value", endDateStep);
+			resultJson.put("recordDate", mqJson.getInt("endDate"));
+			resultArray.add(resultJson);
+		}
+		// 调用接口数据写入日志文件
+		DeviceUtil.saveDeviceDataLog2(resultJson.getLong("userId"), resultJson.getInt("deviceId"),
+				resultJson.getInt("targetTypeId"), resultJson.getString("value"), resultJson.getString("deriveData"),
+				resultJson.getInt("recordDate"), deviceArray.toString());
+		return resultArray;
+	}
+
+	/**
+	 * heha日期格式转yyyymmdd
+	 * 
+	 * @param oldDateStr
+	 * @return
+	 * @throws ParseException
+	 */
+	private String dealDateFormat(String oldDateStr) throws ParseException {
+		// 此格式只有 jdk 1.7才支持 yyyy-MM-dd'T'HH:mm:ss.SSSXXX
+		DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX"); // yyyy-MM-dd'T'HH:mm:ss.SSSZ
+		Date date = df.parse(oldDateStr);
+		SimpleDateFormat df1 = new SimpleDateFormat("EEE MMM dd HH:mm:ss Z yyyy", Locale.UK);
+		Date date1 = df1.parse(date.toString());
+		DateFormat df2 = new SimpleDateFormat("yyyyMMdd");
+		// Date date3 = df2.parse(date1.toString());
+		return df2.format(date1);
+	}
+
+	@Override
+	public String getOauthCode(int deviceId, long userId) throws DeviceException {
+		return null;
+	}
+
+	@Override
+	public DeviceTokenBean snDeviceBind(long userId, int deviceId, String deviceSn, String deviceUserRole)
+			throws DeviceException {
+		return null;
+	}
+
+	@Override
+	public void snDeviceUnbind(long userId, int deviceId, String deviceSn, String deviceUserRole)
+			throws DeviceException {
+	}
+
+}
